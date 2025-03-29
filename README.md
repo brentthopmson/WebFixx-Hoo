@@ -1,6 +1,8 @@
 # Vercel flask
 A demo Flask application running on Vercel
 
+python -m pip install flask-cors
+
 # Deployment
 .venv\Scripts\activate
 Press Play

@@ -1,13 +1,21 @@
 from flask import Flask, request, redirect, render_template, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from redirect_handler import RedirectHandler
-from pagetemplate_handler import PageTemplateHandler
-from externalapis_handler import ExternalApisHandler
+from flask_cors import CORS
 import random
 
+# Try relative imports first (for Vercel), fall back to direct imports (for local)
+try:
+    from .redirect_handler import RedirectHandler
+    from .pagetemplate_handler import PageTemplateHandler
+    from .externalapis_handler import ExternalApisHandler
+except ImportError:
+    from redirect_handler import RedirectHandler
+    from pagetemplate_handler import PageTemplateHandler
+    from externalapis_handler import ExternalApisHandler
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Rate Limiter to prevent excessive requests
 limiter = Limiter(key_func=get_remote_address)
@@ -78,6 +86,17 @@ def backend_function():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Add CORS headers after each request
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+# Export for Vercel
+app = app
 
 if __name__ == '__main__':
     app.run(debug=True)
