@@ -1,6 +1,7 @@
 import requests
 import json
 from flask import render_template_string
+from flask_cors import cross_origin
 
 class PageTemplateHandler:
     def __init__(self):
@@ -19,6 +20,7 @@ class PageTemplateHandler:
             print("Exception fetching project data:", str(e))
             return []
 
+    @cross_origin()
     def handle_token_template(self, token):
         try:
             # Fetch project data

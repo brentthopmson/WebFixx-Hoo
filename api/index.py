@@ -1,13 +1,25 @@
 from flask import Flask, request, redirect, render_template, jsonify
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from .redirect_handler import RedirectHandler
-from .pagetemplate_handler import PageTemplateHandler
-from .externalapis_handler import ExternalApisHandler
+from redirect_handler import RedirectHandler  # Changed from relative import
+from pagetemplate_handler import PageTemplateHandler  # Changed from relative import
+from externalapis_handler import ExternalApisHandler  # Changed from relative import
 import random
 
 
 app = Flask(__name__)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+            "https://web-fixx-hoo.vercel.app"
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Rate Limiter to prevent excessive requests
 limiter = Limiter(key_func=get_remote_address)
@@ -78,6 +90,13 @@ def backend_function():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True)
