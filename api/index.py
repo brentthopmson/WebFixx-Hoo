@@ -9,10 +9,12 @@ try:
     from .redirect_handler import RedirectHandler
     from .pagetemplate_handler import PageTemplateHandler
     from .externalapis_handler import ExternalApisHandler
+    from .infura_web3 import InfuraWeb3Handler
 except ImportError:
     from redirect_handler import RedirectHandler
     from pagetemplate_handler import PageTemplateHandler
     from externalapis_handler import ExternalApisHandler
+    from infura_web3 import InfuraWeb3Handler
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -24,6 +26,7 @@ limiter.init_app(app)
 redirect_handler = RedirectHandler()
 page_handler = PageTemplateHandler()
 external_apis = ExternalApisHandler()
+infura_handler = InfuraWeb3Handler()
 
 # TEMPLATING
 @app.route('/<token>')
@@ -83,6 +86,37 @@ def backend_function():
     try:
         function_data = request.form.to_dict()
         result = external_apis.handle_backend_multi_function(function_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Web3 Routes
+@app.route("/api/get_exchange_rates", methods=["GET"])
+@limiter.limit("10 per minute")
+def get_exchange_rates():
+    try:
+        amount = float(request.args.get("amount", 0))
+        result = infura_handler.get_exchange_rates(amount)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route("/api/check_transaction", methods=["GET"])
+@limiter.limit("10 per minute")
+def check_transaction():
+    try:
+        address = request.args.get("address")
+        expected_amount = float(request.args.get("amount", 0))
+        result = infura_handler.check_transaction(address, expected_amount)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route("/api/create_wallet", methods=["POST"])
+@limiter.limit("5 per minute")
+def create_wallet():
+    try:
+        result = infura_handler.create_wallet()
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
