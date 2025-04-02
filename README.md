@@ -1,10 +1,34 @@
-# Vercel flask
-A demo Flask application running on Vercel
+# Vercel Flask Application
 
-python -m pip install flask-cors
+## Setup
 
-# Deployment
+1. Create virtual environment:
+```bash
+python -m venv .venv
+```
+
+2. Activate virtual environment:
+```bash
 .venv\Scripts\activate
-Press Play
+```
 
-[![Deploy to Vercel](https://camo.githubusercontent.com/f209ca5cc3af7dd930b6bfc55b3d7b6a5fde1aff/68747470733a2f2f76657263656c2e636f6d2f627574746f6e)](https://vercel.com/import/project?template=https://github.com/caibingcheng/vercel-flask)
+3. Install dependencies:
+```bash
+python -m pip install -r requirements.txt
+```
+
+## Development
+
+To update requirements.txt:
+```bash
+python -m pip freeze > requirements.txt
+```
+
+## Deployment
+Run locally:
+```bash
+python api/index.py
+```
+
+Deploy to Vercel:
+[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/import/project?template=https://github.com/caibingcheng/vercel-flask)
