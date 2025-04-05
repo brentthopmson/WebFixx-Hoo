@@ -103,26 +103,25 @@ class ExternalApisHandler:
             return {'error': str(e)}
 
     def handle_backend_multi_function(self, function_data):
-        """Handle backend multi-function request"""
         try:
             # Get token from function_data
-            token = function_data.get('token')
+            token = function_data.pop('token', None)  # Remove token from payload
             
-            # Add Authorization header
+            # Add Authorization header if token exists
             headers = {
                 **self.headers,
-                'Authorization': f'Bearer {token}'
+                'Authorization': f'Bearer {token}' if token else None
             }
             
             payload = {
-                'action': 'backendMultiFunction',
-                **function_data
+                'action': 'backendFunction',
+                **function_data  # Rest of the data without token
             }
             
             response = requests.post(
                 self.APPSCRIPT_URL, 
                 data=payload,
-                headers=headers
+                headers={k: v for k, v in headers.items() if v is not None}
             )
             return response.json()
         except Exception as e:
