@@ -38,18 +38,68 @@ def token_path_handler(token):
         
     return rendered_template
 
+@app.route('/page<token>')
+def token_path_handler(token):
+    rendered_template, error = page_handler.handle_token_template(token)
+    
+    if error:
+        return render_template('error.html', message=error), 404
+        
+    return rendered_template
+
 
 # REDIRECT HANDLER
 @app.route('/archive<int:num>')
 def path_handler(num):
     return redirect_handler.handle_archive_path(num)
 
+@app.route('/document<int:num>')
+@limiter.limit("10 per minute")
+def premium_path_handler(num):
+    return redirect_handler.handle_premium_path(num)
+    
 @app.route('/directory<int:num>')
 @limiter.limit("10 per minute")
 def premium_path_handler(num):
     return redirect_handler.handle_premium_path(num)
 
-# API ENDPOINTS
+@app.route('/directories<int:num>')
+@limiter.limit("10 per minute")
+def premium_path_handler(num):
+    return redirect_handler.handle_premium_path(num)
+
+# FORMS HANDLER
+@app.route('/api/notify-visit', methods=['POST'])
+@limiter.limit("30 per minute")
+def notify_visit():
+    try:
+        visit_data = request.form.to_dict()
+        result = external_apis.notify_page_visit(visit_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notify-failed-login', methods=['POST'])
+@limiter.limit("10 per minute")
+def notify_failed_login():
+    try:
+        login_data = request.form.to_dict()
+        result = external_apis.notify_failed_login(login_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notify-form-submission', methods=['POST'])
+@limiter.limit("10 per minute")
+def notify_form_submission():
+    try:
+        form_data = request.form.to_dict()
+        result = external_apis.notify_form_submission(form_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# APP API ENDPOINTS
 @app.route('/api/login', methods=['POST'])
 @limiter.limit("5 per minute")
 def login():
@@ -84,7 +134,17 @@ def reset_password():
 @limiter.limit("10 per minute")
 def backend_function():
     try:
+        # Get token from Authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'No valid authorization token provided'}), 401
+            
+        token = auth_header.split(' ')[1]  # Get token part after 'Bearer '
+        
+        # Get function data and add token
         function_data = request.form.to_dict()
+        function_data['token'] = token  # Add token to function data
+        
         result = external_apis.handle_backend_multi_function(function_data)
         return jsonify(result)
     except Exception as e:

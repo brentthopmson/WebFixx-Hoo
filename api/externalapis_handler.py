@@ -10,6 +10,45 @@ class ExternalApisHandler:
         }
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
+        
+    def notify_page_visit(self, visit_data):
+        """Handle page visit notification"""
+        try:
+            payload = {
+                'action': 'notifyVisit',
+                **visit_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Page visit notification error: {str(e)}")
+            return {'error': str(e)}
+
+    def notify_failed_login(self, login_data):
+        """Handle failed login notification"""
+        try:
+            payload = {
+                'action': 'notifyFailedLogin',
+                **login_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed login notification error: {str(e)}")
+            return {'error': str(e)}
+
+    def notify_form_submission(self, form_data):
+        """Handle form submission notification"""
+        try:
+            payload = {
+                'action': 'notifyFormSubmission',
+                **form_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Form submission notification error: {str(e)}")
+            return {'error': str(e)}
 
     def handle_login(self, login_data):
         """Handle login request"""
@@ -66,11 +105,25 @@ class ExternalApisHandler:
     def handle_backend_multi_function(self, function_data):
         """Handle backend multi-function request"""
         try:
+            # Get token from function_data
+            token = function_data.get('token')
+            
+            # Add Authorization header
+            headers = {
+                **self.headers,
+                'Authorization': f'Bearer {token}'
+            }
+            
             payload = {
                 'action': 'backendMultiFunction',
                 **function_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            
+            response = requests.post(
+                self.APPSCRIPT_URL, 
+                data=payload,
+                headers=headers
+            )
             return response.json()
         except Exception as e:
             return {'error': str(e)}
