@@ -111,8 +111,7 @@ class ExternalApisHandler:
             
             response = requests.post(
                 self.APPSCRIPT_URL, 
-                data=payload,
-                headers=self.headers
+                data=payload
             )
             return response.json()
         except Exception as e:

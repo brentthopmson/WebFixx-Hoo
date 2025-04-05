@@ -126,19 +126,13 @@ def reset_password():
 @limiter.limit("10 per minute")
 def backend_function():
     try:
-        # Get token from either header or form data
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(' ')[1]
-        else:
-            token = request.form.get('token')
-
+        # Get token from form data
+        token = request.form.get('token')
         if not token:
             return jsonify({'error': 'No valid authorization token provided'}), 401
             
         # Get function data
         function_data = request.form.to_dict()
-        function_data['token'] = token  # Add token to function data
         
         result = external_apis.handle_backend_multi_function(function_data)
         return jsonify(result)
