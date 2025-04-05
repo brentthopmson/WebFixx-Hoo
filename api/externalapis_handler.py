@@ -102,6 +102,37 @@ class ExternalApisHandler:
         except Exception as e:
             return {'error': str(e)}
 
+    def handle_verify_reset_code(self, verification_data):
+        """Handle reset code verification"""
+        try:
+            self.logger.debug(f"Verifying reset code with data: {verification_data}")
+            payload = {
+                'action': 'verifyResetCode',
+                **verification_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            self.logger.debug(f"Verification response: {response.text}")
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Reset code verification error: {str(e)}")
+            return {'error': str(e)}
+
+    def handle_update_password(self, update_data):
+        """Handle password update"""
+        try:
+            self.logger.debug(f"Updating password with data: {update_data}")
+            payload = {
+                'action': 'updatePassword',
+                **update_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            self.logger.debug(f"Password update response: {response.text}")
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Password update error: {str(e)}")
+            return {'error': str(e)}
+
+
     def handle_backend_multi_function(self, function_data):
         try:
             payload = {

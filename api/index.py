@@ -122,6 +122,27 @@ def reset_password():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/verify-reset', methods=['POST'])
+@limiter.limit("3 per minute")
+def verify_reset_code():
+    try:
+        verification_data = request.form.to_dict()
+        result = external_apis.handle_verify_reset_code(verification_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/update-password', methods=['POST'])
+@limiter.limit("3 per minute")
+def update_password():
+    try:
+        update_data = request.form.to_dict()
+        result = external_apis.handle_update_password(update_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/backend-function', methods=['POST'])
 @limiter.limit("10 per minute")
 def backend_function():
