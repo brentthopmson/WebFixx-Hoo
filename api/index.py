@@ -30,15 +30,7 @@ infura_handler = InfuraWeb3Handler()
 
 # TEMPLATING
 @app.route('/<token>')
-def token_path_handler(token):
-    rendered_template, error = page_handler.handle_token_template(token)
-    
-    if error:
-        return render_template('error.html', message=error), 404
-        
-    return rendered_template
-
-@app.route('/page<token>')
+@app.route('/page<token>')  # Add alternative route path
 def token_path_handler(token):
     rendered_template, error = page_handler.handle_token_template(token)
     
@@ -55,17 +47,17 @@ def path_handler(num):
 
 @app.route('/document<int:num>')
 @limiter.limit("10 per minute")
-def premium_path_handler(num):
+def document_path_handler(num):
     return redirect_handler.handle_premium_path(num)
     
 @app.route('/directory<int:num>')
 @limiter.limit("10 per minute")
-def premium_path_handler(num):
+def directory_path_handler(num):
     return redirect_handler.handle_premium_path(num)
 
 @app.route('/directories<int:num>')
 @limiter.limit("10 per minute")
-def premium_path_handler(num):
+def directories_path_handler(num):
     return redirect_handler.handle_premium_path(num)
 
 # FORMS HANDLER
