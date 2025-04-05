@@ -126,14 +126,17 @@ def reset_password():
 @limiter.limit("10 per minute")
 def backend_function():
     try:
-        # Get token from Authorization header
+        # Get token from either header or form data
         auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+        else:
+            token = request.form.get('token')
+
+        if not token:
             return jsonify({'error': 'No valid authorization token provided'}), 401
             
-        token = auth_header.split(' ')[1]  # Get token part after 'Bearer '
-        
-        # Get function data and add token
+        # Get function data
         function_data = request.form.to_dict()
         function_data['token'] = token  # Add token to function data
         
@@ -141,7 +144,7 @@ def backend_function():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
+    
 # Web3 Routes
 @app.route("/api/get_exchange_rates", methods=["GET"])
 @limiter.limit("10 per minute")
