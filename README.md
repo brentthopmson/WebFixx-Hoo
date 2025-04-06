@@ -15,6 +15,7 @@ python -m venv .venv
 3. Install dependencies:
 ```bash
 python -m pip install -r requirements.txt
+python -m pip install web3 python-bitcoinlib blockcypher requests
 ```
 
 ## Development
