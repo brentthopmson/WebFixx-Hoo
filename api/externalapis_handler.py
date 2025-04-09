@@ -4,7 +4,8 @@ import logging
 
 class ExternalApisHandler:
     def __init__(self):
-        self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpGDrsMrVbWe4xjt39a0AhJWPTmdqLvfSia1-gkSfNK5aTIQ95m83Q-kvIXukn_JxLXA/exec"
+        # self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpGDrsMrVbWe4xjt39a0AhJWPTmdqLvfSia1-gkSfNK5aTIQ95m83Q-kvIXukn_JxLXA/exec"
+        self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNoZSKIN_9E0GdL0YM921BPNY3Bb1vvjLZ0_6D7Pn-hFVfPB1JWBVPAfPs9Gh6K3GMpQ/exec"
         self.headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
         }
