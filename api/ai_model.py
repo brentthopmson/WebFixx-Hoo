@@ -2,6 +2,7 @@ from langchain_community.llms import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.summarize import load_summarize_chain
 from bs4 import BeautifulSoup
+import requests
 import json
 import logging
 import os
@@ -12,12 +13,12 @@ class AIModelHandler:
     def __init__(self):
         load_dotenv()
         self.logger = logging.getLogger(__name__)
-        self.llm = OpenAI(temperature=0.5)
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=2000,
-            chunk_overlap=200
-        )
-        self.chain = load_summarize_chain(self.llm, chain_type="map_reduce")
+        self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
     def extract_webpage_content(self, html_content):
         """Extract clean text from HTML content"""
@@ -40,14 +41,28 @@ class AIModelHandler:
             # Extract text content
             text_content = self.extract_webpage_content(html_content)
             
-            # Split text into chunks
-            docs = self.text_splitter.create_documents([text_content])
+            # Prepare prompt for GPT
+            messages = [
+                {"role": "system", "content": "Summarize the following webpage content concisely:"},
+                {"role": "user", "content": text_content[:4000]}  # Limit content length
+            ]
             
-            # Generate summary
-            summary = self.chain.run(docs)
+            # Make API request
+            response = requests.post(
+                self.api_url,
+                headers=self.headers,
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "messages": messages,
+                    "temperature": 0.5,
+                    "max_tokens": 500
+                }
+            )
+            
+            summary = response.json()["choices"][0]["message"]["content"]
             
             # Structure the response
-            response = {
+            result = {
                 "success": True,
                 "data": {
                     "summary": summary,
@@ -58,9 +73,9 @@ class AIModelHandler:
             }
 
             if output_format:
-                response["data"].update(output_format)
+                result["data"].update(output_format)
                 
-            return response
+            return result
 
         except Exception as e:
             self.logger.error(f"Webpage analysis error: {str(e)}")
