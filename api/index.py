@@ -10,11 +10,13 @@ try:
     from .pagetemplate_handler import PageTemplateHandler
     from .externalapis_handler import ExternalApisHandler
     from .infura_web3 import InfuraWeb3Handler
+    from .ai_model import AIModelHandler
 except ImportError:
     from redirect_handler import RedirectHandler
     from pagetemplate_handler import PageTemplateHandler
     from externalapis_handler import ExternalApisHandler
     from infura_web3 import InfuraWeb3Handler
+    from ai_model import AIModelHandler
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -27,6 +29,7 @@ redirect_handler = RedirectHandler()
 page_handler = PageTemplateHandler()
 external_apis = ExternalApisHandler()
 infura_handler = InfuraWeb3Handler()
+ai_model_handler = AIModelHandler()
 
 # TEMPLATING
 @app.route('/<token>')
@@ -190,6 +193,24 @@ def create_wallet():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+# AI Model Routes
+@app.route("/api/ask_model", methods=["POST"])
+@limiter.limit("10 per minute")
+def ask_model():
+    try:
+        data = request.form.to_dict()
+        result = ai_model_handler.handle_webpage_summary(data['html_content'], data['output_format'])
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+
+
+
 
 # Add CORS headers after each request
 @app.after_request
