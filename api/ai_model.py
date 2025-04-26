@@ -1,6 +1,3 @@
-from langchain_community.llms import OpenAI
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.summarize import load_summarize_chain
 from bs4 import BeautifulSoup
 import requests
 import json
