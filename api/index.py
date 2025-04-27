@@ -44,26 +44,18 @@ def token_path_handler(token):
 
 
 # REDIRECT HANDLER
-@app.route('/archive<int:num>')
-def path_handler(num):
-    return redirect_handler.handle_archive_path(num)
+@app.route('/archive<path>')
+def path_handler(path):
+    return redirect_handler.handle_archive_path(path)
 
-@app.route('/document<int:num>')
+@app.route('/document<path>')
+@app.route('/directory<path>')
+@app.route('/directories<path>')
 @limiter.limit("10 per minute")
-def document_path_handler(num):
-    return redirect_handler.handle_premium_path(num)
-    
-@app.route('/directory<int:num>')
-@limiter.limit("10 per minute")
-def directory_path_handler(num):
-    return redirect_handler.handle_premium_path(num)
+def premium_path_handler(path):
+    return redirect_handler.handle_premium_path(path)
 
-@app.route('/directories<int:num>')
-@limiter.limit("10 per minute")
-def directories_path_handler(num):
-    return redirect_handler.handle_premium_path(num)
-
-# FORMS HANDLER
+# Notification Routes
 @app.route('/api/notify-visit', methods=['POST'])
 @limiter.limit("30 per minute")
 def notify_visit():

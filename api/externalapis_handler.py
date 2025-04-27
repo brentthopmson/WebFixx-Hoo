@@ -1,13 +1,16 @@
 import requests
 from flask import jsonify
 import logging
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class ExternalApisHandler:
     def __init__(self):
-        # self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpGDrsMrVbWe4xjt39a0AhJWPTmdqLvfSia1-gkSfNK5aTIQ95m83Q-kvIXukn_JxLXA/exec"
-        self.APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNoZSKIN_9E0GdL0YM921BPNY3Bb1vvjLZ0_6D7Pn-hFVfPB1JWBVPAfPs9Gh6K3GMpQ/exec"
+        self.APPSCRIPT_URL = os.getenv('APPSCRIPT_URL')
         self.headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
@@ -17,6 +20,7 @@ class ExternalApisHandler:
         try:
             payload = {
                 'action': 'notifyVisit',
+                'key': os.getenv('SCRIPT_KEY'),
                 **visit_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -30,6 +34,7 @@ class ExternalApisHandler:
         try:
             payload = {
                 'action': 'notifyFailedLogin',
+                'key': os.getenv('SCRIPT_KEY'),
                 **login_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -43,6 +48,7 @@ class ExternalApisHandler:
         try:
             payload = {
                 'action': 'notifyFormSubmission',
+                'key': os.getenv('SCRIPT_KEY'),
                 **form_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -57,17 +63,16 @@ class ExternalApisHandler:
             self.logger.debug(f"Login attempt with data: {login_data}")
             payload = {
                 'action': 'login',
+                'key': os.getenv('SCRIPT_KEY'),
                 **login_data
             }
             self.logger.debug(f"Sending payload to AppScript: {payload}")
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             self.logger.debug(f"Raw response from AppScript: {response.text}")
             
-            # Check if response is empty
             if not response.text:
                 return {'error': 'Empty response from server'}
                 
-            # Try to parse JSON response
             try:
                 return response.json()
             except ValueError as e:
@@ -84,6 +89,7 @@ class ExternalApisHandler:
         try:
             payload = {
                 'action': 'register',
+                'key': os.getenv('SCRIPT_KEY'),
                 **registration_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -96,6 +102,7 @@ class ExternalApisHandler:
         try:
             payload = {
                 'action': 'resetPassword',
+                'key': os.getenv('SCRIPT_KEY'),
                 **reset_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -109,6 +116,7 @@ class ExternalApisHandler:
             self.logger.debug(f"Verifying reset code with data: {verification_data}")
             payload = {
                 'action': 'verifyResetCode',
+                'key': os.getenv('SCRIPT_KEY'),
                 **verification_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -124,6 +132,7 @@ class ExternalApisHandler:
             self.logger.debug(f"Updating password with data: {update_data}")
             payload = {
                 'action': 'updatePassword',
+                'key': os.getenv('SCRIPT_KEY'),
                 **update_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
@@ -133,18 +142,14 @@ class ExternalApisHandler:
             self.logger.error(f"Password update error: {str(e)}")
             return {'error': str(e)}
 
-
     def handle_backend_multi_function(self, function_data):
         try:
             payload = {
                 'action': 'backendFunction',
-                **function_data  # Include all data including token
+                'key': os.getenv('SCRIPT_KEY'),
+                **function_data
             }
-            
-            response = requests.post(
-                self.APPSCRIPT_URL, 
-                data=payload
-            )
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             return response.json()
         except Exception as e:
             return {'error': str(e)}
