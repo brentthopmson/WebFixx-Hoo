@@ -32,10 +32,10 @@ infura_handler = InfuraWeb3Handler()
 ai_model_handler = AIModelHandler()
 
 # TEMPLATING
-@app.route('/<token>')
-@app.route('/page<token>')  # Add alternative route path
-def token_path_handler(token):
-    rendered_template, error = page_handler.handle_token_template(token)
+@app.route('/<path>')
+@app.route('/page<path>')  # Add alternative route path
+def template_path_handler(path):
+    rendered_template, error = page_handler.handle_page_template(path)
     
     if error:
         return render_template('error.html', message=error), 404

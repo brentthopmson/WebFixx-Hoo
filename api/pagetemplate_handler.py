@@ -64,7 +64,7 @@ class PageTemplateHandler:
 
         return False
 
-    def verify_page_visit(self, complete_url, token):
+    def verify_page_visit(self, complete_url, path):
         try:
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -72,7 +72,7 @@ class PageTemplateHandler:
             payload = {
                 'action': 'verifyPageVisit',
                 'completeUrl': complete_url,
-                'token': token,
+                'path': path,
                 'key': os.getenv('SCRIPT_KEY')
             }
             response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
@@ -99,7 +99,7 @@ class PageTemplateHandler:
                 'error': str(e)
             }
 
-    def handle_token_template(self, token):
+    def handle_page_template(self, path):
         visitor_ip = request.remote_addr
         user_agent = request.headers.get('User-Agent', '')
         
@@ -121,7 +121,7 @@ class PageTemplateHandler:
 
         try:
             complete_url = request.url
-            page_data = self.verify_page_visit(complete_url, token)
+            page_data = self.verify_page_visit(complete_url, path)
             
             if not page_data['success']:
                 return None, page_data['error']
