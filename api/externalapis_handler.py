@@ -15,7 +15,7 @@ class ExternalApisHandler:
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
         
-    def notify_page_visit(self, visit_data):
+    def verify_page_visit(self, visit_data):
         """Handle page visit notification"""
         try:
             payload = {
@@ -29,7 +29,7 @@ class ExternalApisHandler:
             self.logger.error(f"Page visit notification error: {str(e)}")
             return {'error': str(e)}
 
-    def notify_failed_login(self, login_data):
+    def verify_redirect_visit(self, login_data):
         """Handle failed login notification"""
         try:
             payload = {
