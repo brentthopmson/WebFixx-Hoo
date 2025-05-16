@@ -178,12 +178,13 @@ def check_transaction():
         expected_amount = float(data.get("amount", 0))
         currency = data.get("currency", "ETH")  # Default to ETH if not provided
         transaction_id = data.get("transaction_id")
+        tx_hash = data.get("txHash")  # Get txHash from the request
         
         if not address or not expected_amount:
             return jsonify({'error': 'address and amount are required parameters'}), 400
             
         # Use the InfuraWeb3Handler's check_transaction method which handles all currencies
-        result = infura_handler.check_transaction(address, expected_amount, currency)
+        result = infura_handler.check_transaction(address, expected_amount, currency, tx_hash)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
