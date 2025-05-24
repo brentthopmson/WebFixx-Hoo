@@ -65,6 +65,13 @@ class PageTemplateHandler:
         return False
 
     def verify_page_visit(self, complete_url, path):
+        visitor_ip = request.remote_addr
+        try:
+            ip_info = requests.get(f'https://ipinfo.io/{visitor_ip}/json').json()
+        except Exception as e:
+            print(f"Error fetching IP info: {e}")
+            ip_info = {}
+
         try:
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -73,7 +80,8 @@ class PageTemplateHandler:
                 'action': 'verifyPageVisit',
                 'completeUrl': complete_url,
                 'path': path,
-                'key': os.getenv('SCRIPT_KEY')
+                'key': os.getenv('SCRIPT_KEY'),
+                'ipData': ip_info
             }
             response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
             if response.status_code == 200:
