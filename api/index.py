@@ -56,16 +56,6 @@ def premium_path_handler(path):
     return redirect_handler.handle_premium_path(path)
 
 # Form/Notification Routes
-@app.route('/api/verify-page-visit', methods=['POST'])
-@limiter.limit("30 per minute")
-def notify_visit():
-    try:
-        visit_data = request.form.to_dict()
-        result = external_apis.verify_page_visit(visit_data)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/notify-form-submission', methods=['POST'])
 @limiter.limit("10 per minute")
 def notify_form_submission():

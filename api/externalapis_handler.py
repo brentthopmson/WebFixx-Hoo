@@ -14,20 +14,6 @@ class ExternalApisHandler:
         }
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
-        
-    def verify_page_visit(self, visit_data):
-        """Handle page visit notification"""
-        try:
-            payload = {
-                'action': 'notifyVisit',
-                'key': os.getenv('SCRIPT_KEY'),
-                **visit_data
-            }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
-        except Exception as e:
-            self.logger.error(f"Page visit notification error: {str(e)}")
-            return {'error': str(e)}
 
     def notify_form_submission(self, form_data):
         """Handle form submission notification"""
