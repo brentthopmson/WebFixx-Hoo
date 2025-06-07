@@ -66,13 +66,12 @@
         const randomToken = "{{ random_token }}"; 
 
         function redirectUser() {
-            let finalUrl = redirectUrl;
-            const separator = redirectUrl.includes('?') ? '&' : '?';
-            finalUrl += separator + "t=" + randomToken;
+            const url = new URL(redirectUrl);
+            url.searchParams.append("t", randomToken);
             if (email) {
-                finalUrl += "&email=" + encodeURIComponent(email);
+                url.searchParams.append("email", email);
             }
-            window.location.href = finalUrl;
+            window.location.href = url.toString();
         }
 
         window.onloadTurnstileCallback = function () {
