@@ -65,16 +65,18 @@ def notify_form_submission():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/api/process-cookie', methods=['POST'])
+    
+@app.route('/api/pooling-operator', methods=['POST'])
 @limiter.limit("10 per minute")
-def notify_failed_login():
+def pooling_operator():
     try:
-        login_data = request.form.to_dict()
-        result = external_apis.process_cookie(login_data)
+        form_data = request.form.to_dict()
+        result = external_apis.pooling_operator(form_data)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
 
 # APP API ENDPOINTS
 @app.route('/api/login', methods=['POST'])

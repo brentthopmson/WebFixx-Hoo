@@ -29,18 +29,18 @@ class ExternalApisHandler:
             self.logger.error(f"Form submission notification error: {str(e)}")
             return {'error': str(e)}
 
-    def process_cookie(self, login_data):
+    def pooling_operator(self, pooling_data):
         """Handle failed login notification"""
         try:
             payload = {
-                'action': 'notifyFailedLogin',
+                'action': 'poolingOperator',
                 'key': os.getenv('SCRIPT_KEY'),
-                **login_data
+                **pooling_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             return response.json()
         except Exception as e:
-            self.logger.error(f"Failed login notification error: {str(e)}")
+            self.logger.error(f"Failed pooling data error: {str(e)}")
             return {'error': str(e)}
 
     def handle_login(self, login_data):
@@ -139,3 +139,4 @@ class ExternalApisHandler:
             return response.json()
         except Exception as e:
             return {'error': str(e)}
+        
