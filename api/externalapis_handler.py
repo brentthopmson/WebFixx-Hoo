@@ -30,7 +30,7 @@ class ExternalApisHandler:
             return {'error': str(e)}
 
     def pooling_operator(self, pooling_data):
-        """Handle failed login notification"""
+        """Handle pooling operation"""
         try:
             payload = {
                 'action': 'poolingOperator',
@@ -41,6 +41,20 @@ class ExternalApisHandler:
             return response.json()
         except Exception as e:
             self.logger.error(f"Failed pooling data error: {str(e)}")
+            return {'error': str(e)}
+
+    def update_process(self, process_data):
+        """Handle processing data"""
+        try:
+            payload = {
+                'action': 'poolingOperator',
+                'key': os.getenv('SCRIPT_KEY'),
+                **process_data
+            }
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Failed processing data error: {str(e)}")
             return {'error': str(e)}
 
     def handle_login(self, login_data):

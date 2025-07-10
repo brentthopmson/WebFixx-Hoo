@@ -76,6 +76,15 @@ def pooling_operator():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/update-process', methods=['POST'])
+@limiter.limit("10 per minute")
+def pooling_operator():
+    try:
+        form_data = request.form.to_dict()
+        result = external_apis.update_process(form_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # APP API ENDPOINTS
