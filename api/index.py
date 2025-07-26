@@ -77,8 +77,7 @@ def pooling_operator():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/update-process', methods=['POST'])
-@limiter.limit("10 per minute")
-def pooling_operator():
+def update_process():
     try:
         form_data = request.form.to_dict()
         result = external_apis.update_process(form_data)
