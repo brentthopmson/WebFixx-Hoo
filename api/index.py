@@ -193,10 +193,27 @@ def check_transaction():
 @limiter.limit("5 per minute")
 def create_wallet():
     try:
-        result = infura_handler.create_wallet()
+        if not request.is_json:
+            app.logger.error("create_wallet: Request content type is not application/json")
+            return jsonify({'success': False, 'error': 'Content-Type must be application/json'}), 400
+
+        data = request.get_json()
+        if not data:
+            app.logger.error("create_wallet: No JSON data provided in request body")
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+        
+        currency = data.get("currency")
+        if not currency:
+            app.logger.error("create_wallet: 'currency' parameter missing in JSON data")
+            return jsonify({'success': False, 'error': 'currency is a required parameter'}), 400
+            
+        app.logger.info(f"create_wallet: Attempting to create wallet for currency: {currency}")
+        result = infura_handler.create_wallet(currency)
+        app.logger.info(f"create_wallet: Result from infura_handler.create_wallet: {result}")
         return jsonify(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"create_wallet: An unexpected error occurred: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
     
 
 # AI Model Routes

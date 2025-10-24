@@ -72,30 +72,38 @@ class InfuraWeb3Handler:
             logger.error(f"Exchange rate error: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    def create_wallet(self):
-        """Create new BTC and ETH wallets"""
+    def create_wallet(self, currency):
+        """Create a new wallet for the specified currency"""
         try:
-            # Create ETH wallet
-            eth_private_key = '0x' + secrets.token_hex(32)
-            eth_account = Account.from_key(eth_private_key)
-
-            # Create BTC wallet using python-bitcoin
-            btc_private_key = random_key()
-            btc_public_key = privtopub(btc_private_key)
-            btc_address = pubtoaddr(btc_public_key)
-            
-            return {
-                "success": True,
-                "data": {
-                    "ethAddress": eth_account.address,
-                    "ethPrivateKey": eth_private_key,
-                    "btcAddress": btc_address,
-                    "btcPrivateKey": btc_private_key,
-                    "createdAt": str(datetime.now().isoformat())
+            if currency.upper() == 'ETH' or currency.upper() == 'USDT':
+                private_key = '0x' + secrets.token_hex(32)
+                account = Account.from_key(private_key)
+                return {
+                    "success": True,
+                    "data": {
+                        "address": account.address,
+                        "privateKey": private_key,
+                        "currency": currency.upper(),
+                        "createdAt": str(datetime.now().isoformat())
+                    }
                 }
-            }
+            elif currency.upper() == 'BTC':
+                private_key = random_key()
+                public_key = privtopub(private_key)
+                address = pubtoaddr(public_key)
+                return {
+                    "success": True,
+                    "data": {
+                        "address": address,
+                        "privateKey": private_key,
+                        "currency": currency.upper(),
+                        "createdAt": str(datetime.now().isoformat())
+                    }
+                }
+            else:
+                return {"success": False, "error": "Unsupported currency"}
         except Exception as e:
-            logger.error(f"Wallet creation error: {str(e)}")
+            logger.error(f"Wallet creation error for {currency}: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def check_transaction(self, address, expected_amount, currency='ETH'):
