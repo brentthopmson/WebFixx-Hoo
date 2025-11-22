@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  webfixx-app:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      FLASK_APP: api/index.py
+    # command: gunicorn --bind 0.0.0.0:5000 api.index:app

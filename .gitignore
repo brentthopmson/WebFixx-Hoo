@@ -20,6 +20,7 @@ var/
 .installed.cfg
 *.egg
 docs/
+appscripts/
 
 # Virtual Environment
 .env

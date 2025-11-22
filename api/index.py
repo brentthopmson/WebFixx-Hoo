@@ -67,7 +67,7 @@ def notify_form_submission():
         return jsonify({'error': str(e)}), 500
     
 @app.route('/api/pooling-operator', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 def pooling_operator():
     try:
         form_data = request.form.to_dict()
@@ -237,7 +237,7 @@ def ask_model():
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-update-type')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 

