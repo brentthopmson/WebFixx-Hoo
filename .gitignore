@@ -20,7 +20,8 @@ var/
 .installed.cfg
 *.egg
 docs/
-appscripts/
+google-apps-script/
+graphify-out/
 
 # Virtual Environment
 .env

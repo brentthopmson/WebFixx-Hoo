@@ -58,12 +58,26 @@ python -m pytest
 
 ## Deployment
 
-Run locally:
+### Run Locally (Development)
+To run the Flask application locally for development, use the following commands:
+
 ```powershell
-python api/index.py
+# Set the FLASK_APP environment variable (Windows PowerShell)
+$env:FLASK_APP="api/index.py"
+
+# Run the Flask development server
+python -m flask run --host=0.0.0.0 --port=8000
+```
+The application will be accessible at `http://127.0.0.1:8000` or `http://[your-local-ip]:8000`.
+
+### Deploy to Render
+For deployment to Render or other production environments using Gunicorn, use the following start command:
+
+```shell
+gunicorn api.index:app
 ```
 
-Deploy to Vercel:
+### Deploy to Vercel
 1. Fork this repository
 2. Import to Vercel
 3. Add environment variables
