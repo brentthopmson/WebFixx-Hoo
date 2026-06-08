@@ -47,7 +47,7 @@ class ExternalApisHandler:
         """Handle processing data"""
         try:
             payload = {
-                'action': 'poolingOperator',
+                'action': 'updateProcess',
                 'key': os.getenv('SCRIPT_KEY'),
                 **process_data
             }

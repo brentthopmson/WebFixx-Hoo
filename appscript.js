@@ -14,7 +14,7 @@ const CONFIG = {
     PROFILE_PICTURE: "1TwKBloBke5GQav9h5knkO0lk7ezo-PR8",
   },
   CACHE_EXPIRED_IN_SECONDS: 21600, // 6 hours
-  EXTERNAL_API: "https://jshx9c6n-3001.uks1.devtunnels.ms/"
+  EXTERNAL_API: "https://c7ee-105-119-7-93.ngrok-free.app"
 };
 
 
