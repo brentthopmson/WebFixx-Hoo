@@ -9,9 +9,12 @@ const CONFIG = {
     HUB: "hub",
     SETTINGS: "settings",
     COOKIE: "cookie", // Added COOKIE sheet name
+    CAMPAIGNS: "campaigns",
   },
   FOLDER_ID: {
+    USERS: "1EpxeonSw7wrvzSjiqRPKkIFRUHoZR_Pp",
     PROFILE_PICTURE: "1TwKBloBke5GQav9h5knkO0lk7ezo-PR8",
+    CAMPAIGNS: "1ndSyFTzxAiWrAknA_H5gutcJf-kejfeY",
   },
   CACHE_EXPIRED_IN_SECONDS: 21600, // 6 hours
   EXTERNAL_API: "https://c7ee-105-119-7-93.ngrok-free.app"
@@ -80,29 +83,45 @@ function doPost(e) {
   } catch (error) {
     Logger.log("Error in doPost: " + error.message);
     return createJsonResponse({ error: error.message });
+    }
   }
 }
 
-// Add this at the top of your file
-const SECRET_KEY = "fd7c25e9b4a3f8d6c1e0b2a5984f3d2e1b7a9c4f0e8d2b5a3c6f9e1d4b7a0c8e5f2d9b6a3c0f7e4d1b8a5c2f9e6d3b0a7c4f1e8d5b2a9c6f3e0d7b4a1c8f5e2";
+/**
+ * Upload a campaign CSV file to Google Drive and return the shareable URL
+ * @param {Object} params - Parameters containing fileName, fileContent (base64), fileMimeType
+ * @returns {Object} Result with fileUrl, success status
+ */
+function uploadCampaignCSV(params) {
+  try {
+    const { fileName, fileContent } = params;
+    if (!fileName || !fileContent) {
+      return { success: false, error: "Missing fileName or fileContent" };
+    }
 
-function generateSecureToken(userId, role) {
-  const timestamp = new Date().getTime();
-  const randomPart = Math.random().toString(36).substring(2);
-  const dataToEncode = `${userId}|${role}|${timestamp}|${randomPart}`;
-  
-  // Create HMAC signature
-  const signature = Utilities.computeHmacSha256Signature(
-    dataToEncode,
-    SECRET_KEY
-  );
-  const signatureHex = signature.map(byte => 
-    ('0' + (byte & 0xFF).toString(16)).slice(-2)
-  ).join('');
-  
-  // Combine data and signature
-  const token = `${dataToEncode}.${signatureHex}`;
-  return Utilities.base64Encode(token);
+    Logger.log("[uploadCampaignCSV] Storing file: " + fileName);
+
+    // Decode base64 content
+    const decodedBytes = Utilities.base64Decode(fileContent);
+    const blob = Utilities.newBlob(decodedBytes, 'text/csv', fileName);
+
+    // Store in the campaigns folder
+    const folder = DriveApp.getFolderById(CONFIG.FOLDER_ID.CAMPAIGNS);
+    const file = folder.createFile(blob);
+    const fileUrl = file.getUrl();
+
+    Logger.log("[uploadCampaignCSV] File stored: " + fileUrl);
+
+    return {
+      success: true,
+      fileUrl: fileUrl,
+      fileId: file.getId(),
+      fileName: fileName
+    };
+  } catch (error) {
+    Logger.log("[uploadCampaignCSV] Error: " + error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 
@@ -1539,6 +1558,9 @@ function backendMultiFunction(params) {
     changePlan: () => changePlan(params),
     toggleTwoFactorAuth: () => toggleTwoFactorAuth(params),
     visitNotification: () => visitNotification(params),
+
+    // CAMPAIGNS
+    uploadCampaignCSV: () => uploadCampaignCSV(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];
