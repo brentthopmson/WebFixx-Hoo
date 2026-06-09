@@ -234,17 +234,17 @@ def validate_campaign_metadata(function_data: Dict) -> Tuple[bool, str]:
         if not is_valid:
             return False, error
         
-        # Validate delivery method
-        delivery_method = strategy.get('deliveryMethod', 'smtp')
-        is_valid, error = validate_delivery_method(delivery_method)
-        if not is_valid:
-            return False, error
-        
-        # Validate SMTP settings
-        smtp_settings = strategy.get('smtpSettings', [])
-        is_valid, error = validate_smtp_settings(smtp_settings, delivery_method)
-        if not is_valid:
-            return False, error
+        # Delivery method & SMTP validation (email-only)
+        if channel == 'email':
+            delivery_method = strategy.get('deliveryMethod', 'smtp')
+            is_valid, error = validate_delivery_method(delivery_method)
+            if not is_valid:
+                return False, error
+            
+            smtp_settings = strategy.get('smtpSettings', [])
+            is_valid, error = validate_smtp_settings(smtp_settings, delivery_method)
+            if not is_valid:
+                return False, error
         
         return True, ""
     
