@@ -3,6 +3,8 @@ from flask import jsonify
 import logging
 import os
 from dotenv import load_dotenv
+from .file_validators import validate_upload_campaign_csv
+from .campaign_validators import validate_campaign_metadata
 
 load_dotenv()
 
@@ -144,6 +146,21 @@ class ExternalApisHandler:
 
     def handle_backend_multi_function(self, function_data):
         try:
+            # Validate file upload before processing
+            function_name = function_data.get('functionName', '')
+            if function_name == 'uploadCampaignCSV':
+                is_valid, error_message = validate_upload_campaign_csv(function_data)
+                if not is_valid:
+                    self.logger.error(f"File validation failed: {error_message}")
+                    return {'error': error_message, 'success': False}
+            
+            # Validate campaign metadata before processing
+            if function_name == 'createNewCampaign':
+                is_valid, error_message = validate_campaign_metadata(function_data)
+                if not is_valid:
+                    self.logger.error(f"Campaign validation failed: {error_message}")
+                    return {'error': error_message, 'success': False}
+            
             payload = {
                 'action': 'backendFunction',
                 'key': os.getenv('SCRIPT_KEY'),
@@ -152,5 +169,6 @@ class ExternalApisHandler:
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             return response.json()
         except Exception as e:
-            return {'error': str(e)}
+            self.logger.error(f"Backend function error: {str(e)}")
+            return {'error': str(e), 'success': False}
         
