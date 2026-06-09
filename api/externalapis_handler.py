@@ -146,29 +146,43 @@ class ExternalApisHandler:
 
     def handle_backend_multi_function(self, function_data):
         try:
-            # Validate file upload before processing
             function_name = function_data.get('functionName', '')
+            campaign_id = function_data.get('campaignId', 'N/A')
+            self.logger.info(f"[Backend] Received function call: {function_name} | campaignId: {campaign_id}")
+            
+            # Validate file upload before processing
             if function_name == 'uploadCampaignCSV':
+                self.logger.info(f"[Backend] Validating CSV upload: {function_data.get('fileName', 'unknown')} ({function_data.get('fileSize', '?')} bytes)")
                 is_valid, error_message = validate_upload_campaign_csv(function_data)
                 if not is_valid:
-                    self.logger.error(f"File validation failed: {error_message}")
+                    self.logger.error(f"[Backend] File validation FAILED: {error_message}")
                     return {'error': error_message, 'success': False}
+                self.logger.info(f"[Backend] File validation passed")
             
             # Validate campaign metadata before processing
             if function_name == 'createNewCampaign':
+                strategy_preview = function_data.get('strategyContext', '{}')[:200]
+                self.logger.info(f"[Backend] Validating campaign creation — strategyContext preview: {strategy_preview}")
                 is_valid, error_message = validate_campaign_metadata(function_data)
                 if not is_valid:
-                    self.logger.error(f"Campaign validation failed: {error_message}")
+                    self.logger.error(f"[Backend] Campaign validation FAILED: {error_message}")
                     return {'error': error_message, 'success': False}
+                self.logger.info(f"[Backend] Campaign validation passed")
+            
+            if function_name == 'updateCampaign':
+                self.logger.info(f"[Backend] Updating campaign {campaign_id}")
             
             payload = {
                 'action': 'backendFunction',
                 'key': os.getenv('SCRIPT_KEY'),
                 **function_data
             }
+            self.logger.info(f"[Backend] Dispatching to AppScript: {function_name}")
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            result = response.json()
+            self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
+            return result
         except Exception as e:
-            self.logger.error(f"Backend function error: {str(e)}")
+            self.logger.error(f"[Backend] Exception in handle_backend_multi_function: {str(e)}")
             return {'error': str(e), 'success': False}
         

@@ -200,52 +200,74 @@ def validate_campaign_metadata(function_data: Dict) -> Tuple[bool, str]:
             logger.error(f"Campaign validation: Failed to parse strategyContext JSON: {str(e)}")
             return False, f"Invalid campaign settings format: {str(e)}"
         
+        campaign_name = strategy.get('name', '')
+        channel = strategy.get('channel', '')
+        logger.info(f"[Validate] Validating campaign — name='{campaign_name[:50]}' channel='{channel}'")
+        
         # Validate campaign name
-        is_valid, error = validate_campaign_name(strategy.get('name', ''))
+        is_valid, error = validate_campaign_name(campaign_name)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — name: {error}")
             return False, error
+        logger.info(f"[Validate] name ✓")
         
         # Validate channel
-        channel = strategy.get('channel', '')
         is_valid, error = validate_campaign_channel(channel)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — channel: {error}")
             return False, error
+        logger.info(f"[Validate] channel ✓")
         
         # Validate campaign type
         campaign_type = strategy.get('type', '')
         is_valid, error = validate_campaign_type(campaign_type)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — type: {error}")
             return False, error
+        logger.info(f"[Validate] type ✓")
         
         # Validate email-specific fields
         subject = strategy.get('subject', '')
         is_valid, error = validate_email_subject(subject, channel)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — subject: {error}")
             return False, error
+        logger.info(f"[Validate] subject {'✓ (n/a for social)' if channel != 'email' else '✓'}")
         
         body = strategy.get('body', '')
         is_valid, error = validate_email_body(body, channel)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — body: {error}")
             return False, error
+        logger.info(f"[Validate] body {'✓ (n/a for social)' if channel != 'email' else '✓'}")
         
         # Validate file URL
         file_url = strategy.get('fileUrl', '')
         is_valid, error = validate_file_url(file_url, channel)
         if not is_valid:
+            logger.warning(f"[Validate] FAILED — fileUrl: {error}")
             return False, error
+        logger.info(f"[Validate] fileUrl {'✓ (n/a for social)' if channel != 'email' else '✓'}")
         
         # Delivery method & SMTP validation (email-only)
         if channel == 'email':
             delivery_method = strategy.get('deliveryMethod', 'smtp')
             is_valid, error = validate_delivery_method(delivery_method)
             if not is_valid:
+                logger.warning(f"[Validate] FAILED — deliveryMethod: {error}")
                 return False, error
+            logger.info(f"[Validate] deliveryMethod ✓")
             
             smtp_settings = strategy.get('smtpSettings', [])
             is_valid, error = validate_smtp_settings(smtp_settings, delivery_method)
             if not is_valid:
+                logger.warning(f"[Validate] FAILED — smtpSettings: {error}")
                 return False, error
+            logger.info(f"[Validate] smtpSettings ✓")
+        else:
+            logger.info(f"[Validate] Skipping delivery/SMTP checks (social campaign)")
         
+        logger.info(f"[Validate] ALL VALIDATIONS PASSED")
         return True, ""
     
     except Exception as e:

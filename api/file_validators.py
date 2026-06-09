@@ -25,31 +25,27 @@ ALLOWED_MIME_TYPES = [
 ]
 
 # Malicious patterns that could indicate script injection or executable code
+# NOTE: Patterns are matched case-insensitively against the full CSV text.
+# Avoid overly broad patterns (like standalone 'sh' or 'bash') that trigger on normal words.
 FORBIDDEN_PATTERNS = [
-    r'<script',
+    r'<script[>\s]',
     r'javascript:',
-    r'onclick',
-    r'onerror',
-    r'eval\(',
-    r'exec\(',
+    r'onclick\s*=',
+    r'onerror\s*=',
+    r'eval\s*\(',
+    r'exec\s*\(',
     r'__import__',
-    r'\.exe',
-    r'\.bat',
-    r'\.cmd',
-    r'\.php',
-    r'<%',
-    r'<jsp',
-    r'<cfscript',
-    r'<object',
-    r'<embed',
-    r'<iframe',
-    r'<applet',
-    r'\.sh\b',
-    r'\.bin\b',
-    r'powershell',
+    r'powershell\.exe',
     r'cmd\.exe',
-    r'bash\s',
-    r'sh\s',
+    r'\.exe["\',;\s]',
+    r'\.bat["\',;\s]',
+    r'\.cmd["\',;\s]',
+    r'\.php["\',;\s]',
+    r'<%',
+    r'<object[>\s]',
+    r'<embed[>\s]',
+    r'<iframe[>\s]',
+    r'<applet[>\s]',
 ]
 
 
