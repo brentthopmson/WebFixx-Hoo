@@ -87,42 +87,6 @@ function doPost(e) {
   }
 }
 
-/**
- * Upload a campaign CSV file to Google Drive and return the shareable URL
- * @param {Object} params - Parameters containing fileName, fileContent (base64), fileMimeType
- * @returns {Object} Result with fileUrl, success status
- */
-function uploadCampaignCSV(params) {
-  try {
-    const { fileName, fileContent } = params;
-    if (!fileName || !fileContent) {
-      return { success: false, error: "Missing fileName or fileContent" };
-    }
-
-    Logger.log("[uploadCampaignCSV] Storing file: " + fileName);
-
-    // Decode base64 content
-    const decodedBytes = Utilities.base64Decode(fileContent);
-    const blob = Utilities.newBlob(decodedBytes, 'text/csv', fileName);
-
-    // Store in the campaigns folder
-    const folder = DriveApp.getFolderById(CONFIG.FOLDER_ID.CAMPAIGNS);
-    const file = folder.createFile(blob);
-    const fileUrl = file.getUrl();
-
-    Logger.log("[uploadCampaignCSV] File stored: " + fileUrl);
-
-    return {
-      success: true,
-      fileUrl: fileUrl,
-      fileId: file.getId(),
-      fileName: fileName
-    };
-  } catch (error) {
-    Logger.log("[uploadCampaignCSV] Error: " + error.message);
-    return { success: false, error: error.message };
-  }
-}
 
 
 function createDetailedError(message, details = {}) {
@@ -1558,9 +1522,6 @@ function backendMultiFunction(params) {
     changePlan: () => changePlan(params),
     toggleTwoFactorAuth: () => toggleTwoFactorAuth(params),
     visitNotification: () => visitNotification(params),
-
-    // CAMPAIGNS
-    uploadCampaignCSV: () => uploadCampaignCSV(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];

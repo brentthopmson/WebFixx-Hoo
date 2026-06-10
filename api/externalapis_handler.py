@@ -150,24 +150,22 @@ class ExternalApisHandler:
             campaign_id = function_data.get('campaignId', 'N/A')
             self.logger.info(f"[Backend] Received function call: {function_name} | campaignId: {campaign_id}")
             
-            # Validate file upload before processing
-            if function_name == 'uploadCampaignCSV':
-                self.logger.info(f"[Backend] Validating CSV upload: {function_data.get('fileName', 'unknown')} ({function_data.get('fileSize', '?')} bytes)")
-                is_valid, error_message = validate_upload_campaign_csv(function_data)
-                if not is_valid:
-                    self.logger.error(f"[Backend] File validation FAILED: {error_message}")
-                    return {'error': error_message, 'success': False}
-                self.logger.info(f"[Backend] File validation passed")
-            
-            # Validate campaign metadata before processing
+            # Validate campaign creation — file + metadata in one pass
             if function_name == 'createNewCampaign':
                 strategy_preview = function_data.get('strategyContext', '{}')[:200]
-                self.logger.info(f"[Backend] Validating campaign creation — strategyContext preview: {strategy_preview}")
+                has_file = bool(function_data.get('fileContent'))
+                self.logger.info(f"[Backend] Validating campaign creation — has_file={has_file} strategyContext preview: {strategy_preview}")
+                if has_file:
+                    is_valid, error_message = validate_upload_campaign_csv(function_data)
+                    if not is_valid:
+                        self.logger.error(f"[Backend] CSV file validation FAILED: {error_message}")
+                        return {'error': error_message, 'success': False}
+                    self.logger.info(f"[Backend] CSV file validation passed")
                 is_valid, error_message = validate_campaign_metadata(function_data)
                 if not is_valid:
                     self.logger.error(f"[Backend] Campaign validation FAILED: {error_message}")
                     return {'error': error_message, 'success': False}
-                self.logger.info(f"[Backend] Campaign validation passed")
+                self.logger.info(f"[Backend] Campaign metadata validation passed")
             
             if function_name == 'updateCampaign':
                 self.logger.info(f"[Backend] Updating campaign {campaign_id}")
