@@ -1456,7 +1456,7 @@ function handleBackendFunction(params) {
     }
 
     // Extract relevant fields from backendFunctionResult
-    const { success, data, error, message } = backendFunctionResult;
+    const { success, data, error, message, campaignId, fileUrl, details } = backendFunctionResult;
 
     return createJsonResponse({
       success: success,
@@ -1465,7 +1465,10 @@ function handleBackendFunction(params) {
       needsVerification: appDataResult.needsVerification,
       data: data, // Include the data object from the specific backend function result
       error: error, // Include error if present from the specific backend function result
-      message: message // Include message if present from the specific backend function result
+      message: message, // Include message if present from the specific backend function result
+      campaignId: campaignId,
+      fileUrl: fileUrl,
+      details: details
     });
     
   } catch (error) {

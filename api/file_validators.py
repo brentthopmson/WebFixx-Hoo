@@ -1,6 +1,6 @@
 """
 File Validators for WebFixx Campaign CSV Uploads
-Enforces security constraints: 100KB max size, CSV-only format, malicious content scanning
+Enforces security constraints: 1MB max size, CSV-only format, malicious content scanning
 """
 
 import base64
@@ -11,8 +11,8 @@ from typing import Tuple
 logger = logging.getLogger(__name__)
 
 # Configuration Constants
-MAX_SIZE_KB = 100
-MAX_SIZE_BYTES = MAX_SIZE_KB * 1024  # 102,400 bytes
+MAX_SIZE_KB = 1024
+MAX_SIZE_BYTES = MAX_SIZE_KB * 1024  # 1,048,576 bytes (1MB)
 
 ALLOWED_EXTENSIONS = ['csv']
 
@@ -49,27 +49,30 @@ FORBIDDEN_PATTERNS = [
 ]
 
 
-def validate_file_size(file_content_base64: str) -> Tuple[bool, str]:
+def validate_file_size(file_content_base64: str, max_size_kb: int = None) -> Tuple[bool, str]:
     """
-    Validate that file size does not exceed 100KB
+    Validate file size against plan limit or default
     
     Args:
         file_content_base64: Base64-encoded file content
+        max_size_kb: Optional per-plan max size in KB (from campaignFileSize limit)
         
     Returns:
         Tuple[bool, str]: (is_valid, error_message)
     """
     try:
-        # Decode base64 to get actual file size
+        limit_kb = max_size_kb if max_size_kb is not None else MAX_SIZE_KB
+        limit_bytes = limit_kb * 1024
+
         file_content = base64.b64decode(file_content_base64)
         file_size = len(file_content)
         
         if file_size == 0:
             return False, "File is empty"
         
-        if file_size > MAX_SIZE_BYTES:
+        if file_size > limit_bytes:
             size_kb = file_size / 1024
-            return False, f"File is too large ({size_kb:.1f}KB). Maximum size is {MAX_SIZE_KB}KB."
+            return False, f"File is too large ({size_kb:.1f}KB). Maximum size is {limit_kb}KB."
         
         return True, ""
     
@@ -171,7 +174,8 @@ def validate_file_content(file_content_base64: str) -> Tuple[bool, str]:
 def validate_campaign_csv(
     filename: str,
     mime_type: str,
-    file_content_base64: str
+    file_content_base64: str,
+    max_size_kb: int = None
 ) -> Tuple[bool, str]:
     """
     Main validation orchestrator - runs all validators in sequence
@@ -180,6 +184,7 @@ def validate_campaign_csv(
         filename: Name of the uploaded file
         mime_type: MIME type of the file
         file_content_base64: Base64-encoded file content
+        max_size_kb: Optional per-plan max size in KB
         
     Returns:
         Tuple[bool, str]: (is_valid, error_message)
@@ -195,7 +200,7 @@ def validate_campaign_csv(
         return False, error
     
     # Validate file size
-    is_valid, error = validate_file_size(file_content_base64)
+    is_valid, error = validate_file_size(file_content_base64, max_size_kb)
     if not is_valid:
         return False, error
     
@@ -214,7 +219,8 @@ def validate_upload_campaign_csv(function_data: dict) -> Tuple[bool, str]:
     
     Args:
         function_data: Dictionary containing request form data
-                      Expected keys: fileName, fileMimeType, fileContent (base64)
+                      Expected keys: fileName, fileMimeType, fileContent (base64),
+                      campaignFileSize (optional, per-plan KB limit)
         
     Returns:
         Tuple[bool, str]: (is_valid, error_message)
@@ -224,6 +230,9 @@ def validate_upload_campaign_csv(function_data: dict) -> Tuple[bool, str]:
         filename = function_data.get('fileName', '')
         mime_type = function_data.get('fileMimeType', '')
         file_content_base64 = function_data.get('fileContent', '')
+        max_size_kb = function_data.get('campaignFileSize', None)
+        if max_size_kb is not None:
+            max_size_kb = int(max_size_kb)
         
         # Basic parameter validation
         if not filename:
@@ -234,7 +243,7 @@ def validate_upload_campaign_csv(function_data: dict) -> Tuple[bool, str]:
             return False, "fileContent parameter is missing (empty file)"
         
         # Run full validation
-        return validate_campaign_csv(filename, mime_type, file_content_base64)
+        return validate_campaign_csv(filename, mime_type, file_content_base64, max_size_kb)
     
     except Exception as e:
         logger.error(f"Error in upload campaign CSV validation: {str(e)}")
