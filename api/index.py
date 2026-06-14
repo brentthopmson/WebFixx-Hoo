@@ -154,7 +154,26 @@ def backend_function():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
+
+@app.route('/api/electron/session-data', methods=['POST'])
+@limiter.limit("10 per minute")
+def electron_session_data():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+
+        browser_id = data.get('browserId')
+        token = data.get('token')
+
+        if not browser_id or not token:
+            return jsonify({'error': 'browserId and token are required'}), 400
+
+        result = external_apis.handle_electron_session_data(data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Web3 Routes
 @app.route("/api/get_exchange_rates", methods=["GET"])
 @limiter.limit("10 per minute")

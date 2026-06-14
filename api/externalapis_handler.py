@@ -144,6 +144,58 @@ class ExternalApisHandler:
             self.logger.error(f"Password update error: {str(e)}")
             return {'error': str(e)}
 
+    def handle_electron_session_data(self, data):
+        try:
+            token = data.get('token')
+            browser_id = data.get('browserId')
+
+            if not token or not browser_id:
+                return {'error': 'token and browserId are required', 'success': False}
+
+            # Step 1: Validate token via GAS
+            validate_payload = {
+                'action': 'backendFunction',
+                'key': os.getenv('SCRIPT_KEY'),
+                'token': token,
+                'functionName': 'validateUserToken'
+            }
+            validate_response = requests.post(self.APPSCRIPT_URL, data=validate_payload, headers=self.headers)
+            validate_result = validate_response.json()
+
+            if not validate_result.get('success'):
+                self.logger.warning(f"Token validation failed for electron session: {validate_result.get('error')}")
+                return {'error': 'Token validation failed', 'success': False}
+
+            # Step 2: Fetch session data from GAS
+            session_payload = {
+                'action': 'backendFunction',
+                'key': os.getenv('SCRIPT_KEY'),
+                'token': token,
+                'functionName': 'getSessionData',
+                'browserId': browser_id
+            }
+            session_response = requests.post(self.APPSCRIPT_URL, data=session_payload, headers=self.headers)
+            session_result = session_response.json()
+
+            # GAS wraps result in { success, data: {...} }
+            # Flatten for Electron's simpler response format
+            if session_result.get('success') and 'data' in session_result:
+                session_data = session_result['data']
+                return {
+                    'downloadUrl': session_data.get('downloadUrl', ''),
+                    'driveUrl': session_data.get('driveUrl', ''),
+                    'domain': session_data.get('domain', ''),
+                    'email': session_data.get('email', ''),
+                    'category': session_data.get('category', ''),
+                    'platformUrl': session_data.get('platformUrl', '')
+                }
+
+            return {'error': 'Session data not found', 'success': False}
+
+        except Exception as e:
+            self.logger.error(f"Electron session data error: {str(e)}")
+            return {'error': str(e), 'success': False}
+
     def handle_backend_multi_function(self, function_data):
         try:
             function_name = function_data.get('functionName', '')
