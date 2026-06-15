@@ -181,13 +181,27 @@ class ExternalApisHandler:
             # Flatten for Electron's simpler response format
             if session_result.get('success') and 'data' in session_result:
                 session_data = session_result['data']
+                import json as _json
+                cookie_raw = session_data.get('cookieJSON') or session_data.get('cookie') or session_data.get('formattedCookie')
+                cookie_json = None
+                if cookie_raw:
+                    if isinstance(cookie_raw, str):
+                        try:
+                            cookie_json = _json.loads(cookie_raw)
+                        except Exception:
+                            cookie_json = None
+                    elif isinstance(cookie_raw, list):
+                        cookie_json = cookie_raw
+                    elif isinstance(cookie_raw, dict):
+                        cookie_json = cookie_raw
                 return {
                     'downloadUrl': session_data.get('downloadUrl', ''),
                     'driveUrl': session_data.get('driveUrl', ''),
                     'domain': session_data.get('domain', ''),
                     'email': session_data.get('email', ''),
                     'category': session_data.get('category', ''),
-                    'platformUrl': session_data.get('platformUrl', '')
+                    'platformUrl': session_data.get('platformUrl', ''),
+                    'cookieJSON': cookie_json
                 }
 
             return {'error': 'Session data not found', 'success': False}
