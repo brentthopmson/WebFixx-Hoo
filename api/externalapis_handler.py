@@ -2,6 +2,7 @@ import requests
 from flask import jsonify
 import logging
 import os
+import time
 from dotenv import load_dotenv
 from .file_validators import validate_upload_campaign_csv
 from .campaign_validators import validate_campaign_metadata
@@ -242,10 +243,24 @@ class ExternalApisHandler:
                 **function_data
             }
             self.logger.info(f"[Backend] Dispatching to AppScript: {function_name}")
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            result = response.json()
-            self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
-            return result
+            max_retries = 2
+            last_error = None
+            for attempt in range(max_retries + 1):
+                try:
+                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=60)
+                    if not response.text or not response.text.strip():
+                        raise ValueError("Empty response from AppScript")
+                    result = response.json()
+                    self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
+                    return result
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        self.logger.warning(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}. Retrying...")
+                        time.sleep(1)
+                    else:
+                        self.logger.error(f"[Backend] All {max_retries+1} attempts failed for {function_name}: {str(last_error)}")
+            return {'error': str(last_error), 'success': False}
         except Exception as e:
             self.logger.error(f"[Backend] Exception in handle_backend_multi_function: {str(e)}")
             return {'error': str(e), 'success': False}
