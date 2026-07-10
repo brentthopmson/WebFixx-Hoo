@@ -77,6 +77,8 @@ function doPost(e) {
         return updatePassword(params);
       case "backendFunction":
         return handleBackendFunction(params);
+      case "saveDebugPage":
+        return saveDebugPage(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -4135,5 +4137,37 @@ function runUpdateMxRecordAndProviderWrapper() {
     if (triggers[i].getHandlerFunction() === 'runUpdateMxRecordAndProviderWrapper') {
       ScriptApp.deleteTrigger(triggers[i]);
     }
+  }
+}
+
+function saveDebugPage(params) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let debugSheet = ss.getSheetByName("debug");
+    if (!debugSheet) {
+      debugSheet = ss.insertSheet("debug");
+      debugSheet.appendRow(["sn", "timestamp", "browserId", "endpoint", "status", "htmlContent", "reason"]);
+    }
+    const headers = debugSheet.getRange(1, 1, 1, debugSheet.getLastColumn()).getValues()[0];
+    const existingData = debugSheet.getDataRange().getValues();
+    const nextSn = existingData.length;
+    const rowData = headers.map(header => {
+      switch (header.toLowerCase()) {
+        case "sn": return nextSn;
+        case "timestamp": return params.timestamp || new Date().toISOString();
+        case "browserid": return params.browserId || "";
+        case "endpoint": return params.endpoint || "";
+        case "status": return params.status || "FAILED";
+        case "htmlcontent": return params.htmlContent || "";
+        case "reason": return params.reason || "";
+        default: return "";
+      }
+    });
+    debugSheet.appendRow(rowData);
+    Logger.log(`[saveDebugPage] Debug snapshot saved for browserId: ${params.browserId}`);
+    return createJsonResponse({ success: true, message: "Debug snapshot saved" });
+  } catch (error) {
+    Logger.log(`[saveDebugPage] Error: ${error.message}`);
+    return createJsonResponse({ success: false, error: error.message });
   }
 }
