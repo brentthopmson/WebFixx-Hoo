@@ -18,4 +18,4 @@ ENV FLASK_APP=api/index.py
 
 # Run the Flask application
 # Using Gunicorn for production deployment
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "120", "--workers", "4", "api.index:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "180", "--workers", "4", "api.index:app"]
