@@ -77,21 +77,26 @@ class PageTemplateHandler:
                 'ipData': request.remote_addr
             }
             response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    return {
-                        'success': True,
-                        'templateCode': data.get('templateCode'),
-                        'status': data.get('status', 'active')
-                    }
+            if response.status_code != 200:
                 return {
                     'success': False,
-                    'error': data.get('error', 'Invalid response from server')
+                    'error': f'Server error: {response.status_code}'
+                }
+            if not response.text or not response.text.strip():
+                return {
+                    'success': False,
+                    'error': 'Empty response from server'
+                }
+            data = response.json()
+            if data.get('success'):
+                return {
+                    'success': True,
+                    'templateCode': data.get('templateCode'),
+                    'status': data.get('status', 'active')
                 }
             return {
                 'success': False,
-                'error': f'Server error: {response.status_code}'
+                'error': data.get('error', 'Invalid response from server')
             }
         except Exception as e:
             print("Exception in verify_page_visit:", str(e))

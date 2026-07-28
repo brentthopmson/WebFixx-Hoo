@@ -18,6 +18,20 @@ class ExternalApisHandler:
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
 
+    def _safe_json(self, response):
+        """Parse JSON response safely, handling empty bodies and non-200 status codes."""
+        if response.status_code != 200:
+            self.logger.warning(f"Non-200 response from AppScript: {response.status_code}")
+            return {'error': f'Server returned status {response.status_code}', 'success': False}
+        if not response.text or not response.text.strip():
+            self.logger.warning("Empty response body from AppScript")
+            return {'error': 'Empty response from server', 'success': False}
+        try:
+            return response.json()
+        except ValueError as e:
+            self.logger.error(f"JSON parsing error: {str(e)} | Body: {response.text[:500]}")
+            return {'error': f'Invalid JSON response: {str(e)}', 'success': False}
+
     def notify_form_submission(self, form_data):
         """Handle form submission notification"""
         try:
@@ -27,7 +41,7 @@ class ExternalApisHandler:
                 **form_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Form submission notification error: {str(e)}")
             return {'error': str(e)}
@@ -41,7 +55,7 @@ class ExternalApisHandler:
                 **pooling_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Failed pooling data error: {str(e)}")
             return {'error': str(e)}
@@ -55,7 +69,7 @@ class ExternalApisHandler:
                 **process_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Failed processing data error: {str(e)}")
             return {'error': str(e)}
@@ -72,17 +86,7 @@ class ExternalApisHandler:
             self.logger.debug(f"Sending payload to AppScript: {payload}")
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             self.logger.debug(f"Raw response from AppScript: {response.text}")
-            
-            if not response.text:
-                return {'error': 'Empty response from server'}
-                
-            try:
-                return response.json()
-            except ValueError as e:
-                self.logger.error(f"JSON parsing error: {str(e)}")
-                self.logger.error(f"Response content: {response.text}")
-                return {'error': f'Invalid JSON response: {str(e)}'}
-                
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Login error: {str(e)}")
             return {'error': str(e)}
@@ -96,7 +100,7 @@ class ExternalApisHandler:
                 **registration_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             return {'error': str(e)}
 
@@ -109,7 +113,7 @@ class ExternalApisHandler:
                 **reset_data
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             return {'error': str(e)}
 
@@ -124,7 +128,7 @@ class ExternalApisHandler:
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             self.logger.debug(f"Verification response: {response.text}")
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Reset code verification error: {str(e)}")
             return {'error': str(e)}
@@ -140,7 +144,7 @@ class ExternalApisHandler:
             }
             response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
             self.logger.debug(f"Password update response: {response.text}")
-            return response.json()
+            return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Password update error: {str(e)}")
             return {'error': str(e)}
@@ -161,7 +165,7 @@ class ExternalApisHandler:
                 'functionName': 'validateUserToken'
             }
             validate_response = requests.post(self.APPSCRIPT_URL, data=validate_payload, headers=self.headers)
-            validate_result = validate_response.json()
+            validate_result = self._safe_json(validate_response)
 
             if not validate_result.get('success'):
                 self.logger.warning(f"Token validation failed for electron session: {validate_result.get('error')}")
@@ -176,7 +180,7 @@ class ExternalApisHandler:
                 'browserId': browser_id
             }
             session_response = requests.post(self.APPSCRIPT_URL, data=session_payload, headers=self.headers)
-            session_result = session_response.json()
+            session_result = self._safe_json(session_response)
 
             # GAS wraps result in { success, data: {...} }
             # Flatten for Electron's simpler response format
