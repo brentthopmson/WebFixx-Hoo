@@ -64,14 +64,13 @@ def premium_path_handler(path):
 
 # Form/Notification Routes
 @app.route('/api/notify-form-submission', methods=['POST'])
-@limiter.limit("10 per minute")
 def notify_form_submission():
     try:
         form_data = request.form.to_dict()
-        result = external_apis.notify_form_submission(form_data)
-        return jsonify(result)
+        external_apis.notify_form_submission(form_data)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"notify-form-submission error (non-fatal): {str(e)}")
+    return jsonify({'success': True})
     
 @app.route('/api/pooling-operator', methods=['POST'])
 @limiter.limit("100 per minute")
