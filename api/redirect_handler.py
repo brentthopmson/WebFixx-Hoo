@@ -4,6 +4,9 @@ import re
 from flask import request, redirect, render_template
 import os
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -59,7 +62,7 @@ class RedirectHandler:
                 self.FLAGGED_IPS.add(ip)
                 return True
         except Exception as e:
-            print("Error checking IP:", e)
+            logger.error("Error checking IP: %s", e)
 
         return False
 
@@ -93,7 +96,7 @@ class RedirectHandler:
                 'error': f'Server error: {response.status_code}'
             }
         except Exception as e:
-            print("Exception in fetch_redirect_data:", str(e))
+            logger.error("Exception in fetch_redirect_data: %s", str(e))
             return {
                 'success': False,
                 'error': str(e)
@@ -122,7 +125,7 @@ class RedirectHandler:
             
             return urlunparse(new_parts)
         except Exception as e:
-            print("Error preserving query params:", str(e))
+            logger.error("Error preserving query params: %s", str(e))
             return redirect_url
 
     def handle_archive_path(self, path):
@@ -154,7 +157,7 @@ class RedirectHandler:
                 return redirect(random.choice(self.LEGITIMATE_DOMAINS))
                 
         except Exception as e:
-            print(f"Error checking IP info: {e}")
+            logger.error("Error checking IP info: %s", e)
 
         if not user_agent or "bot" in user_agent.lower() or "crawler" in user_agent.lower():
             return render_template('error.html', message="Access denied: Suspicious activity detected"), 403

