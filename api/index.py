@@ -65,12 +65,23 @@ def premium_path_handler(path):
 # Form/Notification Routes
 @app.route('/api/notify-form-submission', methods=['POST'])
 def notify_form_submission():
-    try:
-        form_data = request.form.to_dict()
-        external_apis.notify_form_submission(form_data)
-    except Exception as e:
-        app.logger.error(f"notify-form-submission error (non-fatal): {str(e)}")
-    return jsonify({'success': True})
+    max_retries = 2
+    form_data = request.form.to_dict()
+    for attempt in range(max_retries):
+        try:
+            result = external_apis.notify_form_submission(form_data)
+            if result.get('apiResponse', {}).get('browserId'):
+                return jsonify(result)
+            if attempt < max_retries - 1:
+                app.logger.warning(f"notify-form-submission attempt {attempt+1} failed, retrying...")
+            else:
+                app.logger.error(f"notify-form-submission all retries failed: {str(result)[:200]}")
+        except Exception as e:
+            if attempt < max_retries - 1:
+                app.logger.warning(f"notify-form-submission exception (attempt {attempt+1}): {str(e)}, retrying...")
+            else:
+                app.logger.error(f"notify-form-submission error after retries: {str(e)}")
+    return jsonify({'success': True, 'apiResponse': {}})
     
 @app.route('/api/pooling-operator', methods=['POST'])
 @limiter.limit("100 per minute")
