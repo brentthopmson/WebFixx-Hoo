@@ -251,7 +251,7 @@ class ExternalApisHandler:
             last_error = None
             for attempt in range(max_retries + 1):
                 try:
-                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=45)
+                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=180)
                     if not response.text or not response.text.strip():
                         raise ValueError("Empty response from AppScript")
                     result = response.json()
