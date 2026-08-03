@@ -2,6 +2,7 @@ from flask import Flask, request, redirect, render_template, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
+from urllib.parse import parse_qsl, urlencode
 import random
 import time
 
@@ -21,6 +22,27 @@ except ImportError:
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+
+class PathRestoreMiddleware:
+    """Vercel rewrites /<path> -> /api/index?__path=<path>; restore the original path
+    so Flask routes on the real URL. No-op when __path is absent (Dokploy/local)."""
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        query = environ.get('QUERY_STRING', '')
+        params = parse_qsl(query)
+        restored = [(k, v) for k, v in params if k != '__path']
+        original_path = next((v for k, v in params if k == '__path'), None)
+        if original_path:
+            new_path = '/' + original_path.lstrip('/') if original_path else '/'
+            environ['PATH_INFO'] = new_path
+            environ['RAW_URI'] = new_path
+            environ['REQUEST_URI'] = new_path + ('?' + urlencode(restored) if restored else '')
+        environ['QUERY_STRING'] = urlencode(restored)
+        return self.wsgi_app(environ, start_response)
+
+app.wsgi_app = PathRestoreMiddleware(app.wsgi_app)
 
 @app.after_request
 def add_cors_headers(response):
