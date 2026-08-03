@@ -3,6 +3,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 import random
+import time
 
 # Try relative imports first (for Vercel), fall back to direct imports (for local)
 try:
@@ -42,11 +43,18 @@ ai_model_handler = AIModelHandler()
 @app.route('/<path>')
 @app.route('/page<path>')  # Add alternative route path
 def template_path_handler(path):
+    _req_start = time.time()
+    _ip = request.remote_addr
+    _ua = (request.headers.get('User-Agent') or '')[:80]
+    app.logger.info(f"[Route] template_path_handler path={path} ip={_ip} ua={_ua}")
     rendered_template, error = page_handler.handle_page_template(path)
+    _elapsed = int((time.time() - _req_start) * 1000)
     
     if error:
+        app.logger.warning(f"[Route] template_path_handler path={path} -> 404 ({error}) in {_elapsed}ms")
         return render_template('error.html', message=error), 404
-        
+    
+    app.logger.info(f"[Route] template_path_handler path={path} -> 200 in {_elapsed}ms")
     return rendered_template
 
 
@@ -107,11 +115,16 @@ def update_process():
 @app.route('/api/login', methods=['POST'])
 @limiter.limit("5 per minute")
 def login():
+    _req_start = time.time()
     try:
         login_data = request.form.to_dict()
+        _email = login_data.get('email', 'N/A')
+        app.logger.info(f"[Route] login ip={request.remote_addr} email={_email}")
         result = external_apis.handle_login(login_data)
+        app.logger.info(f"[Route] login email={_email} -> success={result.get('success')} in {int((time.time()-_req_start)*1000)}ms")
         return jsonify(result)
     except Exception as e:
+        app.logger.error(f"[Route] login EXC {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/register', methods=['POST'])
@@ -158,6 +171,7 @@ def update_password():
 @app.route('/api/backend-function', methods=['POST'])
 @limiter.limit("10 per minute")
 def backend_function():
+    _req_start = time.time()
     try:
         # Get token from form data
         token = request.form.get('token')
@@ -166,8 +180,11 @@ def backend_function():
             
         # Get function data
         function_data = request.form.to_dict()
+        _fn = function_data.get('functionName', 'N/A')
+        app.logger.info(f"[Route] backend-function fn={_fn} ip={request.remote_addr}")
         
         result = external_apis.handle_backend_multi_function(function_data)
+        app.logger.info(f"[Route] backend-function fn={_fn} -> success={result.get('success')} in {int((time.time()-_req_start)*1000)}ms")
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

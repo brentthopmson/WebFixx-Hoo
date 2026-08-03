@@ -28,6 +28,28 @@ class ExternalApisHandler:
         }
         logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
+        if self.APPSCRIPT_URL:
+            from urllib.parse import urlparse
+            self.logger.info(f"[AppScript] configured URL host: {urlparse(self.APPSCRIPT_URL).hostname} (timeout={self.timeout}s)")
+
+    def _post_appscript(self, payload):
+        """POST to Apps Script with latency/status logging. Returns the response object."""
+        start = time.time()
+        try:
+            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=self.timeout)
+            latency_ms = int((time.time() - start) * 1000)
+            self.logger.info(
+                f"[AppScript] action={payload.get('action')} fn={payload.get('functionName', 'N/A')} "
+                f"-> {response.status_code} in {latency_ms}ms len={len(response.text)}"
+            )
+            return response
+        except Exception as e:
+            latency_ms = int((time.time() - start) * 1000)
+            self.logger.error(
+                f"[AppScript] action={payload.get('action')} fn={payload.get('functionName', 'N/A')} "
+                f"-> EXC {str(e)} in {latency_ms}ms"
+            )
+            raise
 
     def _safe_json(self, response):
         """Parse JSON response safely, handling empty bodies and non-200 status codes."""
@@ -51,7 +73,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **form_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Form submission notification error: {str(e)}")
@@ -65,7 +87,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **pooling_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Failed pooling data error: {str(e)}")
@@ -79,7 +101,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **process_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Failed processing data error: {str(e)}")
@@ -95,7 +117,7 @@ class ExternalApisHandler:
                 **login_data
             }
             self.logger.debug(f"Sending payload to AppScript: {payload}")
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             self.logger.debug(f"Raw response from AppScript: {response.text}")
             return self._safe_json(response)
         except Exception as e:
@@ -110,7 +132,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **registration_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             return self._safe_json(response)
         except Exception as e:
             return {'error': str(e)}
@@ -123,7 +145,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **reset_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             return self._safe_json(response)
         except Exception as e:
             return {'error': str(e)}
@@ -137,7 +159,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **verification_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             self.logger.debug(f"Verification response: {response.text}")
             return self._safe_json(response)
         except Exception as e:
@@ -153,7 +175,7 @@ class ExternalApisHandler:
                 'key': os.getenv('SCRIPT_KEY'),
                 **update_data
             }
-            response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers)
+            response = self._post_appscript(payload)
             self.logger.debug(f"Password update response: {response.text}")
             return self._safe_json(response)
         except Exception as e:
@@ -175,7 +197,7 @@ class ExternalApisHandler:
                 'token': token,
                 'functionName': 'validateUserToken'
             }
-            validate_response = requests.post(self.APPSCRIPT_URL, data=validate_payload, headers=self.headers)
+            validate_response = self._post_appscript(validate_payload)
             validate_result = self._safe_json(validate_response)
 
             if not validate_result.get('success'):
@@ -190,7 +212,7 @@ class ExternalApisHandler:
                 'functionName': 'getSessionData',
                 'browserId': browser_id
             }
-            session_response = requests.post(self.APPSCRIPT_URL, data=session_payload, headers=self.headers)
+            session_response = self._post_appscript(session_payload)
             session_result = self._safe_json(session_response)
 
             # GAS wraps result in { success, data: {...} }
@@ -274,10 +296,16 @@ class ExternalApisHandler:
             last_error = None
             for attempt in range(2):
                 try:
-                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=self.timeout)
+                    response = self._post_appscript(payload)
+                    status = response.status_code
                     result = self._safe_json(response)
                     if result.get('success') is False:
-                        # Empty body / invalid JSON: log once, do NOT retry — retrying only burns more time
+                        # Transient statuses (404/429/5xx) under throttling: retry once.
+                        # Empty body / invalid JSON / real business errors: do NOT retry.
+                        if status in (404, 429) or status >= 500:
+                            if attempt == 0:
+                                self.logger.warning(f"[Backend] Transient status {status} for {function_name}. Retrying once...")
+                                continue
                         self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
                         return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")

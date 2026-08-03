@@ -602,6 +602,7 @@ function validateRegistrationData(email, password, username) {
 }
 
 function handleLogin(params) {
+  const startTime = Date.now();
   try {
     const { email, password, ipData, deviceInfo } = params; // Added ipData
 
@@ -739,6 +740,7 @@ function handleLogin(params) {
       twoFactorAuth: user[twoFactorAuthIndex] || "FALSE", // Include 2FA status
     };
 
+    Logger.log(`[handleLogin] completed in ${Date.now() - startTime}ms`);
     return createJsonResponse({
       success: true,
       token: token,
@@ -748,6 +750,7 @@ function handleLogin(params) {
     });
 
   } catch (error) {
+    Logger.log(`[handleLogin] failed in ${Date.now() - startTime}ms: ${error.message}`);
     return createJsonResponse({ 
       success: false, 
       error: error.message || "Login failed" 
@@ -1547,6 +1550,7 @@ function backendMultiFunction(params) {
  * Cached wrapper — dedupes repeated validations for the same token within 60s.
  */
 function validateUserToken(token) {
+  const startTime = Date.now();
   try {
     const cache = CacheService.getScriptCache();
     const cacheKey = "vut_" + token;
@@ -1559,6 +1563,7 @@ function validateUserToken(token) {
     if (result && result.success) {
       cache.put(cacheKey, JSON.stringify(result), 60);
     }
+    Logger.log(`[validateUserToken] completed in ${Date.now() - startTime}ms`);
     return result;
   } catch (error) {
     Logger.log("Cache wrapper error: " + error);
@@ -2167,6 +2172,7 @@ function createRedirect(params) {
 
 
 function updateAppData(params) {
+  const startTime = Date.now();
   try {
     const userId = params.userId;
     const userRole = params.userRole;
@@ -2205,6 +2211,7 @@ function updateAppData(params) {
       twoFactorAuth: user[headers.indexOf("twoFactorAuth")] || ""
     };
 
+    Logger.log(`[updateAppData] completed in ${Date.now() - startTime}ms`);
     return {
       success: true,
       user: userResponse,
@@ -2213,7 +2220,7 @@ function updateAppData(params) {
     };
 
   } catch (error) {
-    Logger.log("Update app data error:", error);
+    Logger.log(`[updateAppData] failed in ${Date.now() - startTime}ms: ${error.message}`);
     return { 
       success: false, 
       error: error.message || "Failed to update app data" 

