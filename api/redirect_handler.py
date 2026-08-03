@@ -66,21 +66,48 @@ class RedirectHandler:
 
         return False
 
+    def _safe_json(self, response):
+        """Parse AppScript JSON safely. Returns None for transient/non-JSON responses,
+        else the parsed dict. Business errors (success=false) come back as dicts."""
+        if response.status_code != 200:
+            logger.warning("verifyRedirectVisit non-200 status=%s body=%s", response.status_code, response.text[:200])
+            return None
+        if not response.text or not response.text.strip():
+            logger.warning("verifyRedirectVisit empty body from AppScript")
+            return None
+        try:
+            data = response.json()
+        except ValueError as e:
+            logger.error("verifyRedirectVisit invalid JSON: %s | body: %s", str(e), response.text[:500])
+            return None
+        if not isinstance(data, dict):
+            logger.warning("verifyRedirectVisit non-object JSON from AppScript")
+            return None
+        return data
+
     def fetch_redirect_data(self, complete_url, path_to_check):
         """Fetch redirect data and verify link status with AppScript"""
-        try:
-            headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            payload = {
-                'action': 'verifyRedirectVisit',
-                'completeUrl': complete_url,
-                'path': path_to_check,
-                'key': os.getenv('SCRIPT_KEY')
-            }
-            response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
-            if response.status_code == 200:
-                data = response.json()
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        payload = {
+            'action': 'verifyRedirectVisit',
+            'completeUrl': complete_url,
+            'path': path_to_check,
+            'key': os.getenv('SCRIPT_KEY')
+        }
+        for attempt in range(2):
+            try:
+                response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
+                data = self._safe_json(response)
+                if data is None:
+                    logger.warning("fetch_redirect_data path=%s transient response, retrying (attempt %d)", path_to_check, attempt + 1)
+                    if attempt == 0:
+                        continue
+                    return {
+                        'success': False,
+                        'error': 'Server is temporarily unavailable. Please try again.'
+                    }
                 if data.get('success'):
                     return {
                         'success': True,
@@ -91,16 +118,15 @@ class RedirectHandler:
                     'success': False,
                     'error': data.get('error', 'Invalid response from server')
                 }
-            return {
-                'success': False,
-                'error': f'Server error: {response.status_code}'
-            }
-        except Exception as e:
-            logger.error("Exception in fetch_redirect_data: %s", str(e))
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            except Exception as e:
+                logger.error("Exception in fetch_redirect_data (attempt %d): %s", attempt + 1, str(e))
+                if attempt == 0:
+                    continue
+                return {
+                    'success': False,
+                    'error': 'Server error while verifying redirect. Please try again.'
+                }
+        return {'success': False, 'error': 'Invalid response from server'}
 
     def preserve_query_params(self, original_url, redirect_url):
         """Preserve query parameters from original URL to redirect URL"""

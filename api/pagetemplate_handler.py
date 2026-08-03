@@ -68,52 +68,73 @@ class PageTemplateHandler:
 
         return False
 
-    def verify_page_visit(self, complete_url, path):
+    def _safe_json(self, response):
+        """Parse AppScript JSON safely. Returns None for transient/non-JSON responses,
+        else the parsed dict. Business errors (success=false) come back as dicts."""
+        if response.status_code != 200:
+            logger.warning("verify_page_visit non-200 status=%s body=%s", response.status_code, response.text[:200])
+            return None
+        if not response.text or not response.text.strip():
+            logger.warning("verify_page_visit empty body from AppScript")
+            return None
         try:
-            start_time = time.time()
-            headers = {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            payload = {
-                'action': 'verifyPageVisit',
-                'completeUrl': complete_url,
-                'path': path,
-                'key': os.getenv('SCRIPT_KEY'),
-                'ipData': request.remote_addr
-            }
-            response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
-            elapsed = int((time.time() - start_time) * 1000)
-            logger.info("verify_page_visit path=%s status=%s in %dms", path, response.status_code, elapsed)
-            if response.status_code != 200:
-                return {
-                    'success': False,
-                    'error': f'Server error: {response.status_code}'
-                }
-            if not response.text or not response.text.strip():
-                return {
-                    'success': False,
-                    'error': 'Empty response from server'
-                }
             data = response.json()
-            if data.get('success'):
-                code_len = len(data.get('templateCode') or '')
-                logger.info("verify_page_visit path=%s SUCCESS templateCodeLen=%s", path, code_len)
+        except ValueError as e:
+            logger.error("verify_page_visit invalid JSON: %s | body: %s", str(e), response.text[:500])
+            return None
+        if not isinstance(data, dict):
+            logger.warning("verify_page_visit non-object JSON from AppScript")
+            return None
+        return data
+
+    def verify_page_visit(self, complete_url, path):
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        payload = {
+            'action': 'verifyPageVisit',
+            'completeUrl': complete_url,
+            'path': path,
+            'key': os.getenv('SCRIPT_KEY'),
+            'ipData': request.remote_addr
+        }
+        for attempt in range(2):
+            try:
+                start_time = time.time()
+                response = requests.post(self.APPSCRIPT_URL, headers=headers, data=payload)
+                elapsed = int((time.time() - start_time) * 1000)
+                logger.info("verify_page_visit path=%s status=%s in %dms", path, response.status_code, elapsed)
+                data = self._safe_json(response)
+                if data is None:
+                    logger.warning("verify_page_visit path=%s transient response, retrying (attempt %d)", path, attempt + 1)
+                    if attempt == 0:
+                        continue
+                    return {
+                        'success': False,
+                        'error': 'Server is temporarily unavailable. Please try again.'
+                    }
+                if data.get('success'):
+                    code_len = len(data.get('templateCode') or '')
+                    logger.info("verify_page_visit path=%s SUCCESS templateCodeLen=%s", path, code_len)
+                    return {
+                        'success': True,
+                        'templateCode': data.get('templateCode'),
+                        'status': data.get('status', 'active')
+                    }
+                logger.warning("verify_page_visit path=%s FAILED error=%s", path, data.get('error', 'unknown'))
                 return {
-                    'success': True,
-                    'templateCode': data.get('templateCode'),
-                    'status': data.get('status', 'active')
+                    'success': False,
+                    'error': data.get('error', 'Invalid response from server')
                 }
-            logger.warning("verify_page_visit path=%s FAILED error=%s", path, data.get('error', 'unknown'))
-            return {
-                'success': False,
-                'error': data.get('error', 'Invalid response from server')
-            }
-        except Exception as e:
-            logger.error("Exception in verify_page_visit: %s", str(e))
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            except Exception as e:
+                logger.error("Exception in verify_page_visit (attempt %d): %s", attempt + 1, str(e))
+                if attempt == 0:
+                    continue
+                return {
+                    'success': False,
+                    'error': 'Server error while verifying page. Please try again.'
+                }
+        return {'success': False, 'error': 'Invalid response from server'}
 
     def handle_page_template(self, path):
         start_time = time.time()
