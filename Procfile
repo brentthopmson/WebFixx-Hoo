@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:5000 --timeout 180 --workers 4 api.index:app
+web: gunicorn --bind 0.0.0.0:5000 --timeout 200 --workers 4 api.index:app

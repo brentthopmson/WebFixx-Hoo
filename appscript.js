@@ -1544,8 +1544,29 @@ function backendMultiFunction(params) {
 
 /**
  * Verify token and update last used time
+ * Cached wrapper — dedupes repeated validations for the same token within 60s.
  */
 function validateUserToken(token) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = "vut_" + token;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      Logger.log("Token validation served from cache");
+      return JSON.parse(cached);
+    }
+    const result = _validateUserTokenUncached(token);
+    if (result && result.success) {
+      cache.put(cacheKey, JSON.stringify(result), 60);
+    }
+    return result;
+  } catch (error) {
+    Logger.log("Cache wrapper error: " + error);
+    return _validateUserTokenUncached(token);
+  }
+}
+
+function _validateUserTokenUncached(token) {
   try {
     Logger.log("Starting token validation for: " + token);
     

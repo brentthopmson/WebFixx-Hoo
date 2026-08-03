@@ -9,9 +9,20 @@ from .campaign_validators import validate_campaign_metadata
 
 load_dotenv()
 
+_TOKEN_CACHE = {}
+_TOKEN_CACHE_TTL = int(os.getenv('TOKEN_CACHE_TTL', '60'))
+
+def _prune_token_cache():
+    """Remove expired entries from the in-process token cache."""
+    now = time.time()
+    expired = [k for k, (expires_at, _) in _TOKEN_CACHE.items() if now >= expires_at]
+    for k in expired:
+        _TOKEN_CACHE.pop(k, None)
+
 class ExternalApisHandler:
     def __init__(self):
         self.APPSCRIPT_URL = os.getenv('APPSCRIPT_URL')
+        self.timeout = int(os.getenv('APPSCRIPT_TIMEOUT', '180'))
         self.headers = {
             'Content-Type': 'application/x-www-form-urlencoded'
         }
@@ -240,30 +251,47 @@ class ExternalApisHandler:
             
             if function_name == 'updateCampaign':
                 self.logger.info(f"[Backend] Updating campaign {campaign_id}")
-            
+
+            # Layer 1: cache validateUserToken to avoid hammering Apps Script
+            if function_name == 'validateUserToken':
+                token = function_data.get('token', '')
+                if token:
+                    _prune_token_cache()
+                    cached = _TOKEN_CACHE.get(token)
+                    if cached:
+                        expires_at, result = cached
+                        if time.time() < expires_at:
+                            self.logger.info(f"[Backend] CACHE HIT for validateUserToken")
+                            return result
+                        _TOKEN_CACHE.pop(token, None)
+
             payload = {
                 'action': 'backendFunction',
                 'key': os.getenv('SCRIPT_KEY'),
                 **function_data
             }
             self.logger.info(f"[Backend] Dispatching to AppScript: {function_name}")
-            max_retries = 1
             last_error = None
-            for attempt in range(max_retries + 1):
+            for attempt in range(2):
                 try:
-                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=180)
-                    if not response.text or not response.text.strip():
-                        raise ValueError("Empty response from AppScript")
-                    result = response.json()
+                    response = requests.post(self.APPSCRIPT_URL, data=payload, headers=self.headers, timeout=self.timeout)
+                    result = self._safe_json(response)
+                    if result.get('success') is False:
+                        # Empty body / invalid JSON: log once, do NOT retry — retrying only burns more time
+                        self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
+                        return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
+                    if function_name == 'validateUserToken' and token and result.get('success'):
+                        _TOKEN_CACHE[token] = (time.time() + _TOKEN_CACHE_TTL, result)
                     return result
+                except requests.exceptions.ConnectionError as e:
+                    last_error = e
+                    if attempt == 0:
+                        self.logger.warning(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}. Retrying once...")
                 except Exception as e:
                     last_error = e
-                    if attempt < max_retries:
-                        self.logger.warning(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}. Retrying...")
-                        time.sleep(1)
-                    else:
-                        self.logger.error(f"[Backend] All {max_retries+1} attempts failed for {function_name}: {str(last_error)}")
+                    self.logger.error(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}")
+                    break
             return {'error': str(last_error), 'success': False}
         except Exception as e:
             self.logger.error(f"[Backend] Exception in handle_backend_multi_function: {str(e)}")
