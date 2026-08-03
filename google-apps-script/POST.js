@@ -1597,8 +1597,8 @@ function autoVerifyStaleSessions() {
         const browserId = cookieRow.browserId;
         const status = cookieRow.status;
         
-        // Skip already completed sessions
-        if (status === "COMPLETED" && cookieRow.verified === "TRUE") continue;
+        // Auto-verify only works on COMPLETED sessions (re-validate they're still alive)
+        if (status !== "COMPLETED") continue;
         
         // Parse lastVerifyData
         let lastVerifyData = null;
@@ -1667,6 +1667,24 @@ function autoVerifyStaleSessions() {
               
               updateHubAndProjectsFromCookieData(browserId);
               verifiedCount++;
+            } else {
+              // Verification failed — update cookie + hub so dashboard reflects FAILED state
+              const failLastVerifyData = JSON.stringify({
+                timestamp: new Date().toISOString(),
+                status: 'FAILED',
+                message: responseBody.message || 'Auto-verification failed',
+                verifiedBy: 'auto'
+              });
+
+              setMultipleCellDataByColumnSearch("cookie", "browserId", browserId, {
+                status: 'FAILED',
+                lastVerifyData: failLastVerifyData,
+                verified: 'FALSE',
+                fullAccess: 'FALSE'
+              });
+
+              updateHubAndProjectsFromCookieData(browserId);
+              Logger.log(`Auto-verify marked FAILED for ${browserId}`);
             }
           } catch (verifyError) {
             Logger.log(`Auto-verify failed for ${browserId}: ${verifyError.message}`);
