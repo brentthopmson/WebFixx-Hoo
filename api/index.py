@@ -29,13 +29,25 @@ class PathRestoreMiddleware:
     def __init__(self, wsgi_app):
         self.wsgi_app = wsgi_app
 
+    def _original_path(self, environ):
+        query = environ.get('QUERY_STRING', '')
+        params = parse_qsl(query)
+        original = next((v for k, v in params if k == '__path'), None)
+        if not original:
+            original = (environ.get('HTTP_X_WEBFIXX_PATH') or '').strip('/')
+        if not original:
+            raw = (environ.get('RAW_URI') or environ.get('REQUEST_URI') or '').split('?', 1)[0]
+            if raw and raw != environ.get('PATH_INFO') and not raw.startswith('/api/'):
+                original = raw.strip('/')
+        return original
+
     def __call__(self, environ, start_response):
         query = environ.get('QUERY_STRING', '')
         params = parse_qsl(query)
         restored = [(k, v) for k, v in params if k != '__path']
-        original_path = next((v for k, v in params if k == '__path'), None)
+        original_path = self._original_path(environ)
         if original_path:
-            new_path = '/' + original_path.lstrip('/') if original_path else '/'
+            new_path = '/' + original_path.lstrip('/')
             environ['PATH_INFO'] = new_path
             environ['RAW_URI'] = new_path
             environ['REQUEST_URI'] = new_path + ('?' + urlencode(restored) if restored else '')
@@ -49,6 +61,7 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['X-WebFixx-Fix'] = '2'
     return response
 
 # Rate Limiter to prevent excessive requests
