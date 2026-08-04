@@ -3,6 +3,7 @@ from flask import jsonify
 import logging
 import os
 import time
+import base64
 from dotenv import load_dotenv
 from .file_validators import validate_upload_campaign_csv
 from .campaign_validators import validate_campaign_metadata
@@ -18,6 +19,101 @@ def _prune_token_cache():
     expired = [k for k, (expires_at, _) in _TOKEN_CACHE.items() if now >= expires_at]
     for k in expired:
         _TOKEN_CACHE.pop(k, None)
+
+# ---------------------------------------------------------------------------
+# Per-user, table-keyed AppData cache (in-memory).
+# Getters serve from here; writes hit Apps Script on demand then re-cache.
+# ---------------------------------------------------------------------------
+_APP_CACHE_TTL = int(os.getenv('APP_CACHE_TTL', '60'))
+_APP_CACHE_MAX = int(os.getenv('APP_CACHE_MAX', '2000'))
+_APP_DATA_CACHE = {}
+
+def _prune_app_cache():
+    """Remove expired entries and cap the cache size."""
+    now = time.time()
+    expired = [k for k, (expires_at, _) in _APP_DATA_CACHE.items() if now >= expires_at]
+    for k in expired:
+        _APP_DATA_CACHE.pop(k, None)
+    if len(_APP_DATA_CACHE) > _APP_CACHE_MAX:
+        for k in list(_APP_DATA_CACHE)[: len(_APP_DATA_CACHE) - _APP_CACHE_MAX]:
+            _APP_DATA_CACHE.pop(k, None)
+
+def _app_key(user_id, table):
+    return f"app:{user_id}:{table}"
+
+def _get_app_table(user_id, table):
+    _prune_app_cache()
+    entry = _APP_DATA_CACHE.get(_app_key(user_id, table))
+    if entry and entry[0] >= time.time():
+        return entry[1]
+    return None
+
+def _set_app_table(user_id, table, value):
+    _APP_DATA_CACHE[_app_key(user_id, table)] = (time.time() + _APP_CACHE_TTL, value)
+
+def _invalidate_user(user_id):
+    if not user_id:
+        return
+    _prune_app_cache()
+    for k in [k for k in list(_APP_DATA_CACHE) if k.startswith(f"app:{user_id}:")]:
+        _APP_DATA_CACHE.pop(k, None)
+
+def _extract_user_id(token):
+    """Decode userId from the app token without hitting Apps Script.
+    Token = base64( userId|role|ts|rand . <hmac> )."""
+    if not token:
+        return None
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        decoded = base64.b64decode(padded).decode('utf-8', 'ignore')
+        data_part = decoded.split('.')[0]
+        parts = data_part.split('|')
+        return parts[0] if parts and parts[0] else None
+    except Exception:
+        return None
+
+_APP_USER_KEY = "__user"
+_APP_META_KEY = "__meta"
+
+def _set_app_data(user_id, user, needs_verification, app_data):
+    """Cache a user's whole appData bundle as individual per-table entries."""
+    if not user_id or not app_data:
+        return
+    if user:
+        _set_app_table(user_id, _APP_USER_KEY, user)
+    _set_app_table(user_id, _APP_META_KEY, {"needsVerification": bool(needs_verification)})
+    for table, value in app_data.items():
+        _set_app_table(user_id, table, value)
+
+def _cached_appdata_ready(user_id):
+    return bool(_get_app_table(user_id, _APP_USER_KEY) is not None and
+                _get_app_table(user_id, _APP_META_KEY) is not None)
+
+def _build_cached_appdata(user_id):
+    """Rebuild the exact updateAppData response shape from the per-user cache."""
+    _prune_app_cache()
+    prefix = f"app:{user_id}:"
+    app_data = {}
+    for k in list(_APP_DATA_CACHE):
+        if not k.startswith(prefix):
+            continue
+        table = k[len(prefix):]
+        if table in (_APP_USER_KEY, _APP_META_KEY):
+            continue
+        entry = _APP_DATA_CACHE[k]
+        if entry[0] >= time.time():
+            app_data[table] = entry[1]
+    user = _get_app_table(user_id, _APP_USER_KEY)
+    meta = _get_app_table(user_id, _APP_META_KEY) or {}
+    return {
+        "success": True,
+        "user": user,
+        "appData": app_data,
+        "needsVerification": bool(meta.get("needsVerification", False)),
+        "data": None,
+        "cached": True,
+    }
+
 
 class ExternalApisHandler:
     def __init__(self):
@@ -253,6 +349,12 @@ class ExternalApisHandler:
             function_name = function_data.get('functionName', '')
             campaign_id = function_data.get('campaignId', 'N/A')
             self.logger.info(f"[Backend] Received function call: {function_name} | campaignId: {campaign_id}")
+
+            # Resolve requesting user from the token (no Apps Script round-trip needed)
+            token = function_data.get('token', '')
+            req_uid = _extract_user_id(token)
+            force = str(function_data.get('forceRefresh', '')).lower() in ('true', '1', 'yes')
+            is_read = function_name == 'updateAppData'
             
             # Validate campaign creation — file + metadata in one pass
             if function_name == 'createNewCampaign':
@@ -287,6 +389,12 @@ class ExternalApisHandler:
                             return result
                         _TOKEN_CACHE.pop(token, None)
 
+            # Layer 2 (read path): serve appData from the per-user cache unless
+            # forced (manual "Get Update") or the cache is cold.
+            if is_read and req_uid and not force and _cached_appdata_ready(req_uid):
+                self.logger.info(f"[Backend] AppData CACHE HIT for user {req_uid} (fn=updateAppData)")
+                return _build_cached_appdata(req_uid)
+
             payload = {
                 'action': 'backendFunction',
                 'key': os.getenv('SCRIPT_KEY'),
@@ -299,6 +407,7 @@ class ExternalApisHandler:
                     response = self._post_appscript(payload)
                     status = response.status_code
                     result = self._safe_json(response)
+                    result_user_id = req_uid or ((result.get('user') or {}).get('userId'))
                     if result.get('success') is False:
                         # Transient statuses (404/429/5xx) under throttling: retry once.
                         # Empty body / invalid JSON / real business errors: do NOT retry.
@@ -307,10 +416,17 @@ class ExternalApisHandler:
                                 self.logger.warning(f"[Backend] Transient status {status} for {function_name}. Retrying once...")
                                 continue
                         self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
+                        # A failed write may have partially mutated data — drop stale cache.
+                        _invalidate_user(result_user_id)
                         return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
                     if function_name == 'validateUserToken' and token and result.get('success'):
                         _TOKEN_CACHE[token] = (time.time() + _TOKEN_CACHE_TTL, result)
+                    # Write/read succeeded: refresh-and-recache that user's tables
+                    # so the next getter reads fresh data from cache.
+                    if result.get('success') and result.get('appData') is not None and result_user_id:
+                        _set_app_data(result_user_id, result.get('user'), result.get('needsVerification'), result.get('appData'))
+                        self.logger.info(f"[Backend] AppData cached for user {result_user_id} after {function_name}")
                     return result
                 except requests.exceptions.ConnectionError as e:
                     last_error = e
