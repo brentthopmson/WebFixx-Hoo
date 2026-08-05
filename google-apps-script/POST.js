@@ -33,9 +33,12 @@ function validateRequest(params) {
 }
 
 function doPost(e) {
+  const _postStart = Date.now();
   try {
     Logger.log("Received POST request");
     const params = e.parameter;
+    const traceId = params.traceId || "n/a";
+    Logger.log(`[api][${traceId}] action=${params.action || "?"} start=${_postStart}`);
     
     // Validate request
     try {
@@ -1890,6 +1893,8 @@ function destroyAccount(params) {
 
 // Update secured backend function handler
 function handleBackendFunction(params) {
+  const _hbfStart = Date.now();
+  const traceId = params.traceId || "n/a";
   try {
     const token = params.token;
     if (!token) {
@@ -1910,13 +1915,16 @@ function handleBackendFunction(params) {
     params.userId = tokenVerification.userId;
     params.userRole = tokenVerification.role;
 
+    Logger.log(`[api][${traceId}] hbf dispatch=${params.functionName || "?"} start`);
     const backendFunctionResult = JSON.parse(backendMultiFunction(params));
+    Logger.log(`[api][${traceId}] hbf backendMultiFunction dur_ms=${Date.now() - _hbfStart} fn=${params.functionName || "?"}`);
 
     // Ensure any changes from backendMultiFunction are flushed before fetching user data
     SpreadsheetApp.flush();
 
     // Get comprehensive user and app data using validateUserToken
     const appDataResult = validateUserToken(token);
+    Logger.log(`[api][${traceId}] hbf validateUserToken dur_ms=${Date.now() - _hbfStart} fn=${params.functionName || "?"}`);
     if (!appDataResult.success) {
       // This should ideally not happen if verifyToken was successful, but as a safeguard
       return createJsonResponse({
@@ -2029,7 +2037,10 @@ function backendMultiFunction(params) {
   }
 
   try {
-    return JSON.stringify(requestedFunction());
+    const _dispatchStart = Date.now();
+    const output = JSON.stringify(requestedFunction());
+    Logger.log(`[api] fn=${params.functionName} dur_ms=${Date.now() - _dispatchStart} size=${output.length}`);
+    return output;
   } catch (error) {
     console.error(`Error executing ${params.functionName}:`, error);
     throw error;
