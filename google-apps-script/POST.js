@@ -1705,6 +1705,8 @@ function autoVerifyStaleSessions() {
 
 function runSmartExtract(params) {
   try {
+    const gateExtraction = requireSetting("allowExtraction", "smart extraction");
+    if (gateExtraction) return gateExtraction;
     const { browserId, category } = params;
 
     if (!browserId || !category) {
@@ -1983,6 +1985,8 @@ function backendMultiFunction(params) {
     enrichCampaignLeads: () => enrichCampaignLeads(params),
     personalizeCampaignEmails: () => personalizeCampaignEmails(params),
     executeCampaign: () => executeCampaign(params),
+    pauseCampaign: () => pauseCampaign(params),
+    resumeCampaign: () => resumeCampaign(params),
 
     // REDIRECT
     createRedirect: () => createRedirect(params),
@@ -2700,8 +2704,8 @@ function updateSetting(params) {
     }
 
     const headerAndValueMap = {};
-    if (typeof value1 !== 'undefined') headerAndValueMap.settingsValue1 = value1;
-    if (typeof value2 !== 'undefined') headerAndValueMap.settingsValue2 = value2;
+    if (typeof params.value1 !== 'undefined') headerAndValueMap.settingsValue1 = params.value1;
+    if (typeof params.value2 !== 'undefined') headerAndValueMap.settingsValue2 = params.value2;
 
     if (Object.keys(headerAndValueMap).length === 0) {
       return { success: false, error: "At least one of value1 or value2 is required" };

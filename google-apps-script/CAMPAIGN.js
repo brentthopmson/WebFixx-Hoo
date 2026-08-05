@@ -131,11 +131,22 @@ function createNewCampaign(params) {
     }
 
     const campaignId = "CMP-" + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+
     let parsedStrategy = {};
     try {
       parsedStrategy = typeof strategyContext === "string" ? JSON.parse(strategyContext) : (strategyContext || {});
     } catch (e) {
       parsedStrategy = { body: strategyContext };
+    }
+
+    // Feature gate: campaign creation
+    const gateCampaign = requireSetting("allowCampaignCreation", "campaign creation");
+    if (gateCampaign) return gateCampaign;
+    // Feature gate: social channel campaigns require allowInteraction
+    const gateChannel = (parsedStrategy.channel || "email");
+    if (gateChannel === "social") {
+      const gateInteraction = requireSetting("allowInteraction", "social interaction");
+      if (gateInteraction) return gateInteraction;
     }
 
     // Determine initial campaign status
@@ -328,6 +339,8 @@ function ensureCampaignsSheet() {
  */
 function executeCampaign(params) {
   try {
+    const gateShooting = requireSetting("allowShooting", "campaign shooting");
+    if (gateShooting) return gateShooting;
     const { campaignId } = params;
     if (!campaignId) {
       return { success: false, error: "campaignId is required" };
@@ -341,6 +354,11 @@ function executeCampaign(params) {
 
     const row = result.data[0];
     const headers = result.headers;
+    const currentStatus = row[headers.indexOf("status")];
+    if (currentStatus && String(currentStatus).trim().toLowerCase() === "paused") {
+      return { success: false, error: "Campaign is paused. Resume it to continue shooting." };
+    }
+
     const settingsStr = row[headers.indexOf("settings")];
     const contextStr = row[headers.indexOf("context")];
 
@@ -463,6 +481,102 @@ function deleteCampaign(params) {
     return { success: true, message: "Campaign deleted successfully", data: result };
   } catch (error) {
     Logger.log("Error in deleteCampaign: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Pause a running campaign. Only campaigns with status 'running' or 'Limit Reached'
+ * can be paused. Paused campaigns will not shoot further contacts until resumed.
+ * @param {Object} params - { campaignId }
+ * @returns {Object} Result object
+ */
+function pauseCampaign(params) {
+  try {
+    const { campaignId } = params;
+    if (!campaignId) {
+      return { success: false, error: "campaignId is required" };
+    }
+
+    const result = getRowsByColumn("campaigns", "campaignId", campaignId);
+    if (!result.success || result.count === 0) {
+      return { success: false, error: "Campaign not found" };
+    }
+
+    const headers = result.headers;
+    const row = result.data[0];
+    const currentStatus = row[headers.indexOf("status")];
+    const normalized = currentStatus ? String(currentStatus).trim().toLowerCase() : "";
+
+    if (normalized === "paused") {
+      return { success: true, message: "Campaign is already paused." };
+    }
+    if (normalized !== "running" && normalized !== "limit reached") {
+      return { success: false, error: "Only running or Limit Reached campaigns can be paused (current status: " + (currentStatus || "unknown") + ")." };
+    }
+
+    const updates = {
+      status: "paused",
+      updatedOn: new Date().toLocaleString()
+    };
+    const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
+    if (!writeResult.success) {
+      return { success: false, error: writeResult.error };
+    }
+
+    Logger.log(`[pauseCampaign] Campaign ${campaignId} paused (was: ${currentStatus})`);
+    return { success: true, message: "Campaign paused successfully. No further contacts will be shot until resumed.", status: "paused" };
+  } catch (error) {
+    Logger.log("Error in pauseCampaign: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Resume a paused campaign and immediately continue shooting from the checkpoint.
+ * @param {Object} params - { campaignId }
+ * @returns {Object} Result object
+ */
+function resumeCampaign(params) {
+  try {
+    const { campaignId } = params;
+    if (!campaignId) {
+      return { success: false, error: "campaignId is required" };
+    }
+
+    const result = getRowsByColumn("campaigns", "campaignId", campaignId);
+    if (!result.success || result.count === 0) {
+      return { success: false, error: "Campaign not found" };
+    }
+
+    const headers = result.headers;
+    const row = result.data[0];
+    const currentStatus = row[headers.indexOf("status")];
+    const normalized = currentStatus ? String(currentStatus).trim().toLowerCase() : "";
+
+    if (normalized !== "paused") {
+      return { success: false, error: "Only paused campaigns can be resumed (current status: " + (currentStatus || "unknown") + ")." };
+    }
+
+    const updates = {
+      status: "running",
+      updatedOn: new Date().toLocaleString()
+    };
+    const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
+    if (!writeResult.success) {
+      return { success: false, error: writeResult.error };
+    }
+
+    Logger.log(`[resumeCampaign] Campaign ${campaignId} resumed from 'paused', continuing shooting from checkpoint.`);
+
+    // Continue shooting immediately from the checkpoint in one action.
+    const executionResult = executeCampaign(params);
+    if (executionResult && executionResult.success) {
+      return { success: true, message: "Campaign resumed and continued shooting.", status: "running", execution: executionResult };
+    }
+    return { success: true, message: "Campaign resumed. Re-run or continue shooting manually if the engine did not continue.", status: "running", execution: executionResult };
+  } catch (error) {
+    Logger.log("Error in resumeCampaign: " + error.message);
     return { success: false, error: error.message };
   }
 }
