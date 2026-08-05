@@ -2688,7 +2688,9 @@ function updateAppData(params) {
  */
 function updateSetting(params) {
   try {
+    Logger.log(`[updateSetting] called with params: ${JSON.stringify({ key: params.key, value1: params.value1, value2: params.value2, userRole: params.userRole, userId: params.userId })}`);
     if (params.userRole !== "ADMIN") {
+      Logger.log(`[updateSetting] BLOCKED: userRole=${params.userRole} is not ADMIN`);
       return { success: false, error: "ADMIN role required to update settings" };
     }
 
@@ -2708,11 +2710,27 @@ function updateSetting(params) {
     const result = setMultipleCellDataByColumnSearch("settings", "settingsKey", key, headerAndValueMap);
 
     if (!result.success) {
+      Logger.log(`[updateSetting] WRITE FAILED for '${key}': ${result.error}`);
       return { success: false, error: result.error };
     }
 
-    Logger.log(`[updateSetting] Updated '${key}': ${JSON.stringify(headerAndValueMap)}`);
-    return { success: true, message: `Setting '${key}' updated successfully` };
+    // Self-verify: re-read the written row from the sheet
+    const verified = {};
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const ws = ss.getSheetByName("settings");
+      const [headers, ...rows] = ws.getDataRange().getValues();
+      const keyCol = headers.indexOf("settingsKey");
+      const rowIndex = rows.findIndex(r => r[keyCol].toString().trim() === key.toString().trim());
+      if (rowIndex !== -1) {
+        headers.forEach((h, i) => { verified[h] = rows[rowIndex][i]; });
+      }
+    } catch (verifyError) {
+      Logger.log(`[updateSetting] verification read failed: ${verifyError.message}`);
+    }
+
+    Logger.log(`[updateSetting] Updated '${key}' at row ${result.rowNumber}: ${JSON.stringify(headerAndValueMap)} | sheet now: ${JSON.stringify(verified)}`);
+    return { success: true, message: `Setting '${key}' updated successfully`, rowNumber: result.rowNumber, verified: verified };
   } catch (error) {
     Logger.log(`[updateSetting] failed: ${error.message}`);
     return { success: false, error: error.message };

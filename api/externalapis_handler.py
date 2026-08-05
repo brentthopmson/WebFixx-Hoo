@@ -420,6 +420,12 @@ class ExternalApisHandler:
                         _invalidate_user(result_user_id)
                         return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
+                    if function_name == 'updateSetting':
+                        self.logger.info(
+                            f"[Backend] updateSetting result for user={result_user_id}: "
+                            f"success={result.get('success')} | error={result.get('error')} | "
+                            f"rowNumber={result.get('rowNumber')} | key={function_data.get('key')}"
+                        )
                     if function_name == 'validateUserToken' and token and result.get('success'):
                         _TOKEN_CACHE[token] = (time.time() + _TOKEN_CACHE_TTL, result)
                     # Write/read succeeded: refresh-and-recache that user's tables
