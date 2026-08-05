@@ -2688,15 +2688,15 @@ function updateAppData(params) {
  */
 function updateSetting(params) {
   try {
-    Logger.log(`[updateSetting] called with params: ${JSON.stringify({ key: params.key, value1: params.value1, value2: params.value2, userRole: params.userRole, userId: params.userId })}`);
+    Logger.log(`[updateSetting] called with params: ${JSON.stringify({ settingsKey: params.settingsKey, value1: params.value1, value2: params.value2, userRole: params.userRole, userId: params.userId })}`);
     if (params.userRole !== "ADMIN") {
       Logger.log(`[updateSetting] BLOCKED: userRole=${params.userRole} is not ADMIN`);
       return { success: false, error: "ADMIN role required to update settings" };
     }
 
-    const { key, value1, value2 } = params;
+    const key = params.settingsKey;
     if (!key) {
-      return { success: false, error: "key is required" };
+      return { success: false, error: "settingsKey is required" };
     }
 
     const headerAndValueMap = {};

@@ -424,7 +424,7 @@ class ExternalApisHandler:
                         self.logger.info(
                             f"[Backend] updateSetting result for user={result_user_id}: "
                             f"success={result.get('success')} | error={result.get('error')} | "
-                            f"rowNumber={result.get('rowNumber')} | key={function_data.get('key')}"
+                            f"rowNumber={result.get('rowNumber')} | key={function_data.get('settingsKey')}"
                         )
                     if function_name == 'validateUserToken' and token and result.get('success'):
                         _TOKEN_CACHE[token] = (time.time() + _TOKEN_CACHE_TTL, result)
