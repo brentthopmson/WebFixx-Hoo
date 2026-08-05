@@ -2005,6 +2005,9 @@ function backendMultiFunction(params) {
     visitNotification: () => visitNotification(params),
     toggleAutoVerify: () => toggleAutoVerify(params),
 
+    // SETTINGS (ADMIN ONLY)
+    updateSetting: () => updateSetting(params),
+
     // SESSION VERIFICATION
     verifySession: () => verifySession(params),
 
@@ -2675,6 +2678,44 @@ function updateAppData(params) {
       success: false, 
       error: error.message || "Failed to update app data" 
     };
+  }
+}
+
+/**
+ * Update a settings row's value (ADMIN ONLY).
+ * @param {Object} params - { userId, userRole, key, value1, value2 }
+ * @returns {Object} Result object
+ */
+function updateSetting(params) {
+  try {
+    if (params.userRole !== "ADMIN") {
+      return { success: false, error: "ADMIN role required to update settings" };
+    }
+
+    const { key, value1, value2 } = params;
+    if (!key) {
+      return { success: false, error: "key is required" };
+    }
+
+    const headerAndValueMap = {};
+    if (typeof value1 !== 'undefined') headerAndValueMap.settingsValue1 = value1;
+    if (typeof value2 !== 'undefined') headerAndValueMap.settingsValue2 = value2;
+
+    if (Object.keys(headerAndValueMap).length === 0) {
+      return { success: false, error: "At least one of value1 or value2 is required" };
+    }
+
+    const result = setMultipleCellDataByColumnSearch("settings", "settingsKey", key, headerAndValueMap);
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    Logger.log(`[updateSetting] Updated '${key}': ${JSON.stringify(headerAndValueMap)}`);
+    return { success: true, message: `Setting '${key}' updated successfully` };
+  } catch (error) {
+    Logger.log(`[updateSetting] failed: ${error.message}`);
+    return { success: false, error: error.message };
   }
 }
 
