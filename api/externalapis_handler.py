@@ -13,6 +13,48 @@ load_dotenv()
 _TOKEN_CACHE = {}
 _TOKEN_CACHE_TTL = int(os.getenv('TOKEN_CACHE_TTL', '60'))
 
+# Backend function names that mutate data. After a successful one that does not
+# return fresh appData, the per-user AppData cache is invalidated so reads refresh.
+_WRITE_FUNCTIONS = {
+    'updateSetting',
+    'updateUserPreferences',
+    'changePassword',
+    'generateApiKey',
+    'destroyAccount',
+    'changePlan',
+    'toggleTwoFactorAuth',
+    'toggleAutoVerify',
+    'visitNotification',
+    'verifySession',
+    'createProjectLink',
+    'updateProjectTemplateVariables',
+    'updateProjectNotifications',
+    'acquireDomain',
+    'acquireRedirect',
+    'renewProject',
+    'deleteProject',
+    'createNewCampaign',
+    'updateCampaign',
+    'deleteCampaign',
+    'validateCampaignEmails',
+    'enrichCampaignLeads',
+    'personalizeCampaignEmails',
+    'executeCampaign',
+    'pauseCampaign',
+    'resumeCampaign',
+    'createRedirect',
+    'renewRedirect',
+    'addRedirectEndPages',
+    'updateRedirectEndPages',
+    'initializePayment',
+    'buyUsAdrink',
+    'saveMemo',
+    'runSmartExtract',
+    'notifyFormSubmission',
+    'updateProcess',
+    'poolingOperator',
+}
+
 def _prune_token_cache():
     """Remove expired entries from the in-process token cache."""
     now = time.time()
@@ -433,6 +475,12 @@ class ExternalApisHandler:
                     if result.get('success') and result.get('appData') is not None and result_user_id:
                         _set_app_data(result_user_id, result.get('user'), result.get('needsVerification'), result.get('appData'))
                         self.logger.info(f"[Backend] AppData cached for user {result_user_id} after {function_name}")
+                    # Mutations that do NOT return fresh appData (e.g. updateSetting)
+                    # leave the per-user cache stale — drop it so the next read refetches
+                    # from Apps Script instead of serving out-of-date rows for the TTL.
+                    elif result.get('success') and result_user_id and function_name in _WRITE_FUNCTIONS:
+                        _invalidate_user(result_user_id)
+                        self.logger.info(f"[Backend] Invalidated cache for user {result_user_id} after write {function_name}")
                     return result
                 except requests.exceptions.ConnectionError as e:
                     last_error = e
