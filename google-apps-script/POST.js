@@ -1922,6 +1922,52 @@ function handleBackendFunction(params) {
     // Ensure any changes from backendMultiFunction are flushed before fetching user data
     SpreadsheetApp.flush();
 
+    // getAppDataLite already returns the light appData bundle (projects carry pointers
+    // only, no heavy inline responses). getProjectResponses returns a single project's
+    // responses on demand. Both skip the heavy validateUserToken rebuild.
+    if (params.functionName === "getAppDataLite" || params.functionName === "getProjectResponses") {
+      const isLite = params.functionName === "getAppDataLite";
+      Logger.log(`[api][${traceId}] hbf using lightweight response dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
+      return createJsonResponse({
+        success: backendFunctionResult.success,
+        user: backendFunctionResult.user,
+        appData: isLite ? backendFunctionResult.data : undefined,
+        needsVerification: backendFunctionResult.needsVerification,
+        data: backendFunctionResult.data,
+        error: backendFunctionResult.error,
+        message: backendFunctionResult.message,
+        campaignId: backendFunctionResult.campaignId,
+        fileUrl: backendFunctionResult.fileUrl,
+        fileId: backendFunctionResult.fileId,
+        downloadUrl: backendFunctionResult.downloadUrl,
+        cached: backendFunctionResult.cached
+      });
+    }
+
+    // Conservative fast-path: campaign + settings actions return their own result
+    // (success/data/message/campaignId) WITHOUT rebuilding the full appData bundle.
+    // The frontend already falls back to its cached appState when appData is absent,
+    // so omitting the 11-23MB rebuild here makes these pages fast. Fresh data is
+    // obtained on demand via getAppDataLite (manual refresh / next load).
+    const noAppDataRebuildFunctions = [
+      "createNewCampaign", "getCampaign", "updateCampaign", "deleteCampaign",
+      "validateCampaignEmails", "enrichCampaignLeads", "personalizeCampaignEmails",
+      "executeCampaign", "pauseCampaign", "resumeCampaign",
+      "updateSetting"
+    ];
+    if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
+      Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
+      return createJsonResponse({
+        success: backendFunctionResult.success,
+        data: backendFunctionResult.data,
+        error: backendFunctionResult.error,
+        message: backendFunctionResult.message,
+        campaignId: backendFunctionResult.campaignId,
+        fileUrl: backendFunctionResult.fileUrl,
+        details: backendFunctionResult.details
+      });
+    }
+
     // Get comprehensive user and app data using validateUserToken
     const appDataResult = validateUserToken(token);
     Logger.log(`[api][${traceId}] hbf validateUserToken dur_ms=${Date.now() - _hbfStart} fn=${params.functionName || "?"}`);
@@ -1974,6 +2020,7 @@ function backendMultiFunction(params) {
     verifyAccount: () => verifyAccount(params),
     logout: () => handleLogout(params),
     updateAppData: () => updateAppData(params),
+    getAppDataLite: () => getAppDataLite(params),
 
     // PROJECTS
     verifyTelegramNotification: () => verifyTelegramNotification(params),
@@ -1985,6 +2032,7 @@ function backendMultiFunction(params) {
     renewProject: () => renewProject(params),
     deleteProject: () => deleteProject(params),
     getProjectAccounts: () => getProjectAccounts(params),
+    getProjectResponses: () => getProjectResponses(params.projectId),
     createNewCampaign: () => createNewCampaign(params),
     getCampaign: () => getCampaign(params),
     updateCampaign: () => updateCampaign(params),
@@ -2692,6 +2740,67 @@ function updateAppData(params) {
     return { 
       success: false, 
       error: error.message || "Failed to update app data" 
+    };
+  }
+}
+
+/**
+ * Lightweight variant of updateAppData used by the web dashboard.
+ * Returns the SAME shape (success/user/data/needsVerification) but the projects
+ * table carries only light file pointers ({fileId, downloadUrl, count, filePointer})
+ * instead of the full inline response payload. The frontend lazily fetches a single
+ * project's responses on demand via getProjectResponses.
+ */
+function getAppDataLite(params) {
+  const startTime = Date.now();
+  try {
+    const userId = params.userId;
+    const userRole = params.userRole;
+
+    const userData = userRole === "ADMIN" ? getAdminData(userId, true) : getUserData(userId, true);
+
+    const userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("user");
+    const headers = userSheet.getRange(1, 1, 1, userSheet.getLastColumn()).getValues()[0];
+    const rows = userSheet.getDataRange().getValues();
+
+    const userIdIndex = headers.indexOf("userId");
+    const userRowIndex = rows.findIndex((row, index) => index > 0 && row[userIdIndex] === userId);
+
+    if (userRowIndex === -1) {
+      throw new Error("User not found");
+    }
+
+    const user = rows[userRowIndex];
+
+    const userResponse = {
+      id: userId,
+      userId: userId,
+      email: user[headers.indexOf("email")],
+      username: user[headers.indexOf("username")],
+      role: userRole,
+      verifyStatus: user[headers.indexOf("verifyStatus")] || "FALSE",
+      darkMode: user[headers.indexOf("darkMode")] || "FALSE",
+      twoFactorAuth: user[headers.indexOf("twoFactorAuth")] || "FALSE",
+      autoVerifySessions: user[headers.indexOf("autoVerifySessions")] || "FALSE",
+      verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
+      balance: user[headers.indexOf("balance")] || "0.00",
+      plan: user[headers.indexOf("plan")] || "FREE",
+      planExpiry: user[headers.indexOf("planExpiry")] || ""
+    };
+
+    Logger.log(`[getAppDataLite] completed in ${Date.now() - startTime}ms`);
+    return {
+      success: true,
+      user: userResponse,
+      data: userData,
+      needsVerification: userResponse.verifyStatus === "FALSE" || !userResponse.verifyStatus
+    };
+
+  } catch (error) {
+    Logger.log(`[getAppDataLite] failed in ${Date.now() - startTime}ms: ${error.message}`);
+    return {
+      success: false,
+      error: error.message || "Failed to load app data"
     };
   }
 }

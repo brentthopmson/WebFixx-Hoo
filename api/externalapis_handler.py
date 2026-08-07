@@ -396,7 +396,7 @@ class ExternalApisHandler:
             token = function_data.get('token', '')
             req_uid = _extract_user_id(token)
             force = str(function_data.get('forceRefresh', '')).lower() in ('true', '1', 'yes')
-            is_read = function_name == 'updateAppData'
+            is_read = function_name in ('updateAppData', 'getAppDataLite')
             
             # Validate campaign creation — file + metadata in one pass
             if function_name == 'createNewCampaign':
