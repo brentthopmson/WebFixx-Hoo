@@ -211,7 +211,7 @@ function createNewCampaign(params) {
     };
 
     const campaignData = {
-      createdOn: new Date().toLocaleString(),
+      createdOn: new Date().toISOString(),
       campaignId: campaignId,
       userId: params.userId || "anonymous",
       type: parsedStrategy.type || (parsedStrategy.channel === "social" ? "Social" : "general"),
@@ -220,7 +220,7 @@ function createNewCampaign(params) {
       context: typeof strategyContext === "object" ? JSON.stringify(strategyContext) : (strategyContext || "{}"),
       status: initialStatus,
       stats: JSON.stringify({ interactions: 0, conversions: 0, inbox: 0 }),
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
 
     // Ensure the campaigns sheet exists before writing
@@ -419,7 +419,7 @@ function executeCampaign(params) {
       // Update status to 'running'
       const updates = {
         status: "running",
-        updatedOn: new Date().toLocaleString()
+        updatedOn: new Date().toISOString()
       };
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
       
@@ -453,7 +453,7 @@ function updateCampaign(params) {
     }
 
     const updates = {
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     if (settings) updates.settings = settings;
     if (status) updates.status = status;
@@ -517,7 +517,7 @@ function pauseCampaign(params) {
 
     const updates = {
       status: "paused",
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
     if (!writeResult.success) {
@@ -560,7 +560,7 @@ function resumeCampaign(params) {
 
     const updates = {
       status: "running",
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
     if (!writeResult.success) {
@@ -646,7 +646,7 @@ function validateCampaignEmails(params) {
     settings.validationStatus = "processing";
     const updates = {
       settings: JSON.stringify(settings),
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
 
@@ -714,7 +714,7 @@ function enrichCampaignLeads(params) {
     settings.enrichmentStatus = "processing";
     const updates = {
       settings: JSON.stringify(settings),
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
 
@@ -782,7 +782,7 @@ function personalizeCampaignEmails(params) {
     settings.personalizationStatus = "processing";
     const updates = {
       settings: JSON.stringify(settings),
-      updatedOn: new Date().toLocaleString()
+      updatedOn: new Date().toISOString()
     };
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
 
