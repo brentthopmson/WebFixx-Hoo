@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import base64
+import threading
 from dotenv import load_dotenv
 from .file_validators import validate_upload_campaign_csv
 from .campaign_validators import validate_campaign_metadata
@@ -66,9 +67,22 @@ def _prune_token_cache():
 # Per-user, table-keyed AppData cache (in-memory).
 # Getters serve from here; writes hit Apps Script on demand then re-cache.
 # ---------------------------------------------------------------------------
-_APP_CACHE_TTL = int(os.getenv('APP_CACHE_TTL', '60'))
+_APP_CACHE_TTL = int(os.getenv('APP_CACHE_TTL', '120'))
 _APP_CACHE_MAX = int(os.getenv('APP_CACHE_MAX', '2000'))
 _APP_DATA_CACHE = {}
+
+# In-flight appData reads per user. When two identical getAppDataLite/updateAppData
+# calls arrive together, the second waits on the first's event instead of issuing a
+# second (huge) Apps Script round-trip. Cleared by _release_inflight().
+_INFLIGHT_READS = {}
+
+
+def _release_inflight(user_id, event, owned):
+    if not owned or event is None:
+        return
+    event.set()
+    if _INFLIGHT_READS.get(user_id) is event:
+        _INFLIGHT_READS.pop(user_id, None)
 
 def _prune_app_cache():
     """Remove expired entries and cap the cache size."""
@@ -432,10 +446,24 @@ class ExternalApisHandler:
                         _TOKEN_CACHE.pop(token, None)
 
             # Layer 2 (read path): serve appData from the per-user cache unless
-            # forced (manual "Get Update") or the cache is cold.
-            if is_read and req_uid and not force and _cached_appdata_ready(req_uid):
-                self.logger.info(f"[Backend] AppData CACHE HIT for user {req_uid} (fn=updateAppData)")
-                return _build_cached_appdata(req_uid)
+            # forced (manual "Get Update") or the cache is cold. Concurrent reads
+            # for the same user are coalesced into a single Apps Script call.
+            coalesced_read = is_read and bool(req_uid)
+            inflight_event = None
+            owns_inflight = False
+            if coalesced_read:
+                if not force and _cached_appdata_ready(req_uid):
+                    self.logger.info(f"[Backend] AppData CACHE HIT for user {req_uid} (fn={function_name})")
+                    return _build_cached_appdata(req_uid)
+                existing = _INFLIGHT_READS.get(req_uid)
+                if existing is not None:
+                    self.logger.info(f"[Backend] Coalescing read for user {req_uid} (fn={function_name})")
+                    existing.wait(timeout=self.timeout + 30)
+                    if _cached_appdata_ready(req_uid):
+                        return _build_cached_appdata(req_uid)
+                inflight_event = threading.Event()
+                _INFLIGHT_READS[req_uid] = inflight_event
+                owns_inflight = True
 
             payload = {
                 'action': 'backendFunction',
@@ -449,6 +477,11 @@ class ExternalApisHandler:
                     response = self._post_appscript(payload)
                     status = response.status_code
                     result = self._safe_json(response)
+                    # Apps Script returns the bundle under 'data'; the frontend
+                    # reads 'appData'. Mirror so both work and the cache fills.
+                    if is_read and isinstance(result, dict) and result.get('success'):
+                        if 'appData' not in result and 'data' in result:
+                            result['appData'] = result['data']
                     result_user_id = req_uid or ((result.get('user') or {}).get('userId'))
                     if result.get('success') is False:
                         # Transient statuses (404/429/5xx) under throttling: retry once.
@@ -460,6 +493,7 @@ class ExternalApisHandler:
                         self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
                         # A failed write may have partially mutated data — drop stale cache.
                         _invalidate_user(result_user_id)
+                        _release_inflight(req_uid, inflight_event, owns_inflight)
                         return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
                     if function_name == 'updateSetting':
@@ -481,6 +515,7 @@ class ExternalApisHandler:
                     elif result.get('success') and result_user_id and function_name in _WRITE_FUNCTIONS:
                         _invalidate_user(result_user_id)
                         self.logger.info(f"[Backend] Invalidated cache for user {result_user_id} after write {function_name}")
+                    _release_inflight(req_uid, inflight_event, owns_inflight)
                     return result
                 except requests.exceptions.ConnectionError as e:
                     last_error = e
@@ -490,6 +525,7 @@ class ExternalApisHandler:
                     last_error = e
                     self.logger.error(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}")
                     break
+            _release_inflight(req_uid, inflight_event, owns_inflight)
             return {'error': str(last_error), 'success': False}
         except Exception as e:
             self.logger.error(f"[Backend] Exception in handle_backend_multi_function: {str(e)}")

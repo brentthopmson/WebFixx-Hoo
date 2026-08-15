@@ -5,6 +5,7 @@ from flask_cors import CORS
 from urllib.parse import parse_qsl, urlencode
 import random
 import time
+import gzip
 
 # Try relative imports first (for Vercel), fall back to direct imports (for local)
 try:
@@ -62,6 +63,25 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['X-WebFixx-Fix'] = '2'
+    return response
+
+@app.after_request
+def compress_response(response):
+    """gzip JSON/text bodies larger than 1KB. Skip streaming/direct-passthrough
+    responses (file downloads) and bodies that do not actually compress."""
+    if (response.status_code == 200
+            and not getattr(response, 'direct_passthrough', False)
+            and response.mimetype in ('application/json', 'text/html', 'text/css',
+                                      'text/plain', 'application/javascript',
+                                      'text/javascript', 'text/csv')
+            and 'gzip' in request.headers.get('Accept-Encoding', '')
+            and len(response.get_data() or b'') > 1024):
+        body = response.get_data()
+        gz = gzip.compress(body, 6)
+        if len(gz) < len(body):
+            response.set_data(gz)
+            response.headers['Content-Encoding'] = 'gzip'
+            response.headers['Vary'] = 'Accept-Encoding'
     return response
 
 # Rate Limiter to prevent excessive requests
