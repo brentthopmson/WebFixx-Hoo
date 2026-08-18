@@ -18,7 +18,7 @@ const CONFIG = {
     CAMPAIGNS: "1ndSyFTzxAiWrAknA_H5gutcJf-kejfeY",
   },
   CACHE_EXPIRED_IN_SECONDS: 21600, // 6 hours
-  EXTERNAL_API: "https://3ed4-102-88-54-126.ngrok-free.app"
+  EXTERNAL_API: "https://b9a5-102-88-169-103.ngrok-free.app"
   //EXTERNAL_API: "https://webfixx-serverless-zvre9t-e955ff-157-173-204-24.sslip.io"
 };
 
