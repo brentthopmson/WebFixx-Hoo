@@ -64,6 +64,8 @@ function doPost(e) {
         return verifyPageVisit(params);
       case "getCookieData":
         return getCookieData(params);
+      case "getData":
+        return handleGetData(params);
       case "setCookieData":
         return setCookieData(params);
       case "notifyFormSubmission":
@@ -94,6 +96,45 @@ function doPost(e) {
   } catch (error) {
     Logger.log("Error in doPost: " + error.message);
     return createJsonResponse({ error: error.message });
+  }
+}
+
+/**
+ * Generic read for any sheet by name (POST). Mirrors GET.js's getData but keeps the
+ * doPost validateRequest key check. Range is optional — when omitted the sheet's full
+ * used range (getDataRange) is returned, so the engine can read projects/hub even while
+ * the Sheets API OAuth token is invalid.
+ */
+function handleGetData(params) {
+  try {
+    const sheetName = params.sheetname || params.sheetName;
+    if (!sheetName) {
+      return createJsonResponse({ success: false, error: "Sheet name is required." });
+    }
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+    if (!sheet) {
+      return createJsonResponse({ success: false, error: `Sheet "${sheetName}" not found.` });
+    }
+
+    let data;
+    if (params.range) {
+      data = sheet.getRange(params.range).getValues();
+    } else {
+      data = sheet.getDataRange().getValues();
+    }
+
+    const headers = data.length > 0 ? data[0] : [];
+    const rows = data.length > 0 ? data.slice(1) : [];
+    return createJsonResponse({
+      success: true,
+      headers: headers,
+      data: rows,
+      count: rows.length
+    });
+  } catch (error) {
+    Logger.log("Error in handleGetData: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
   }
 }
 
@@ -2115,10 +2156,16 @@ function getSessionData(params) {
     };
 
     const driveUrl = getCol('cookieFileURL') || getCol('driveUrl') || '';
-    const fileIdMatch = driveUrl.match(/[-\w]{25,}(?=[\/?]|$)/);
-    const downloadUrl = fileIdMatch
-      ? 'https://drive.google.com/uc?export=download&id=' + fileIdMatch[0]
-      : '';
+    // Only Google Drive links need the fileId -> uc?export=download rewrite. Non-Drive
+    // providers (Cloudinary/R2/B2) store a direct public URL, so pass those through
+    // unchanged — the Electron launcher validates ZIP magic bytes on download.
+    let downloadUrl = driveUrl;
+    if (/drive\.google\.com/.test(driveUrl)) {
+      const fileIdMatch = driveUrl.match(/[-\w]{25,}(?=[\/?]|$)/);
+      if (fileIdMatch) {
+        downloadUrl = 'https://drive.google.com/uc?export=download&id=' + fileIdMatch[0];
+      }
+    }
 
     return {
       success: true,
