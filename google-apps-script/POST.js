@@ -18,7 +18,7 @@ const CONFIG = {
     CAMPAIGNS: "1ndSyFTzxAiWrAknA_H5gutcJf-kejfeY",
   },
   CACHE_EXPIRED_IN_SECONDS: 21600, // 6 hours
-  EXTERNAL_API: "https://b9a5-102-88-169-103.ngrok-free.app"
+  EXTERNAL_API: "https://670d-41-190-12-74.ngrok-free.app"
   //EXTERNAL_API: "https://webfixx-serverless-zvre9t-e955ff-157-173-204-24.sslip.io"
 };
 
@@ -90,6 +90,8 @@ function doPost(e) {
         return saveDebugPage(params);
       case "setMultipleCellDataByColumnSearch":
         return handleSetMultipleCellData(params);
+      case "saveResponseToDrive":
+        return handleSaveResponseToDrive(e);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -2980,6 +2982,80 @@ function handleSetMultipleCellData(params) {
     return createJsonResponse(result);
   } catch (error) {
     Logger.log("Error in handleSetMultipleCellData: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Tokenless App Script fallback for saving an oversized projects response JSON to
+ * Google Drive. The payload is sent as a JSON POST body (read via e.postData.contents)
+ * so responses larger than the urlencoded parameter limit are supported. Mirrors the
+ * engine's getOrCreateUserFolder + createOrUpdateJsonFile layout exactly: user folder
+ * (named by userId) under CONFIG.FOLDER_ID.USERS, then a project subfolder (named by
+ * projectId), then a text/plain `${projectId}.json` file inside it. Storing under the
+ * same userFolder/projectId/file.json path as the OAuth fast-path prevents Drive
+ * duplicates when the two paths are used at different times.
+ */
+function handleSaveResponseToDrive(e) {
+  try {
+    let body = e.parameter ? Object.assign({}, e.parameter) : {};
+    if (e.postData && e.postData.contents) {
+      try {
+        body = Object.assign(body, JSON.parse(e.postData.contents));
+      } catch (err) {
+        Logger.log("saveResponseToDrive: failed to parse postData contents: " + err.message);
+      }
+    }
+
+    const { projectId, userId, fileName, data } = body;
+    if (!projectId || !userId || !data) {
+      return createJsonResponse({ success: false, error: "Missing required params: projectId, userId, data" });
+    }
+
+    const name = fileName || `${projectId}.json`;
+    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    const fileContent = JSON.stringify(parsedData, null, 2);
+
+    const parentFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID.USERS);
+
+    // Find or create the user folder (named by userId).
+    let userFolder = null;
+    const folders = parentFolder.getFoldersByName(String(userId));
+    if (folders.hasNext()) {
+      userFolder = folders.next();
+    } else {
+      userFolder = parentFolder.createFolder(String(userId));
+    }
+
+    // Find or create the project subfolder (named by projectId) — mirrors the
+    // engine's createOrUpdateJsonFile layout: userFolder/projectId/projectId.json.
+    let projectFolder = null;
+    const projectFolders = userFolder.getFoldersByName(String(projectId));
+    if (projectFolders.hasNext()) {
+      projectFolder = projectFolders.next();
+    } else {
+      projectFolder = userFolder.createFolder(String(projectId));
+    }
+
+    // Find or create the JSON file, then always refresh its content.
+    let file = null;
+    const files = projectFolder.getFilesByName(name);
+    if (files.hasNext()) {
+      file = files.next();
+    } else {
+      file = projectFolder.createFile(name, fileContent, MimeType.PLAIN_TEXT);
+    }
+    file.setContent(fileContent);
+
+    return createJsonResponse({
+      success: true,
+      fileId: file.getId(),
+      fileName: name,
+      totalResponses: Array.isArray(parsedData) ? parsedData.length : undefined,
+      url: file.getUrl()
+    });
+  } catch (error) {
+    Logger.log("Error in handleSaveResponseToDrive: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }
