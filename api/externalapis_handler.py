@@ -41,6 +41,7 @@ _WRITE_FUNCTIONS = {
     'enrichCampaignLeads',
     'personalizeCampaignEmails',
     'executeCampaign',
+    'interactCampaign',
     'pauseCampaign',
     'resumeCampaign',
     'createRedirect',
