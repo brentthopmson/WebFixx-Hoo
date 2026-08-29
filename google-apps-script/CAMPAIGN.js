@@ -442,6 +442,62 @@ function executeCampaign(params) {
 }
 
 /**
+ * Start the full staged pipeline for an existing draft campaign via the
+ * engine's pipeline-orchestrator (auto-chains Validate → Enrich → Personalize → Execute → Interact).
+ * @param {Object} params - { campaignId }
+ * @returns {Object} Orchestrator status
+ */
+function runCampaignPipeline(params) {
+  try {
+    const { campaignId } = params;
+    if (!campaignId) {
+      return { success: false, error: "campaignId is required" };
+    }
+
+    // Call the external headless engine pipeline orchestrator
+    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/pipeline-orchestrator";
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'ngrok-skip-browser-warning': 'true'
+      },
+      payload: JSON.stringify({ campaignId }),
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
+    const result = JSON.parse(response.getContentText());
+
+    if (result.success || response.getResponseCode() === 200) {
+      // Optimistically mark running so the UI refreshes quickly; the engine
+      // will flip it back to paused/failed if a stop guard trips.
+      const updates = {
+        status: "running",
+        updatedOn: new Date().toLocaleString()
+      };
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
+
+      return {
+        success: true,
+        message: result.message || "Pipeline started successfully",
+        data: result,
+        campaignId: campaignId
+      };
+    } else {
+      return {
+        success: false,
+        error: result.error || result.message || "Failed to start pipeline via serverless API"
+      };
+    }
+  } catch (error) {
+    Logger.log("Error in runCampaignPipeline: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Update an existing campaign's settings or status
  * @param {Object} params - Campaign parameters
  */

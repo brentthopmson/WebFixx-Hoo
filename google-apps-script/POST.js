@@ -2083,6 +2083,7 @@ function backendMultiFunction(params) {
     enrichCampaignLeads: () => enrichCampaignLeads(params),
     personalizeCampaignEmails: () => personalizeCampaignEmails(params),
     executeCampaign: () => executeCampaign(params),
+    runCampaignPipeline: () => runCampaignPipeline(params),
     pauseCampaign: () => pauseCampaign(params),
     resumeCampaign: () => resumeCampaign(params),
 
