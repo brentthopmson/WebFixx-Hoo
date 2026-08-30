@@ -4,6 +4,53 @@
  */
 
 /**
+ * Resolve the best available engine URL for a given API path.
+ * Uses getBestServerlessEndpoint to pick from the "links" sheet,
+ * falling back to CONFIG.EXTERNAL_API if nothing is available.
+ * @param {string} path - API path suffix (e.g. "/api/pipeline-orchestrator")
+ * @returns {string} Full URL to call
+ */
+function resolveEngineUrl(path) {
+  try {
+    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null);
+    var base = (best && best.severlessURL)
+      ? best.severlessURL.replace(/\/+$/, '')
+      : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
+    return base + path;
+  } catch (e) {
+    Logger.log('[resolveEngineUrl] fallback to CONFIG.EXTERNAL_API: ' + e.message);
+    return String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '') + path;
+  }
+}
+
+/**
+ * Fetch the engine with JSON parse guard and ngrok skip header.
+ * @param {string} url - Full URL to call
+ * @param {Object} payload - Request body
+ * @returns {{ responseCode: number, body: Object }} Parsed response
+ */
+function fetchEngineJson(url, payload) {
+  var options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  var response = UrlFetchApp.fetch(url, options);
+  var code = response.getResponseCode();
+  var text = response.getContentText();
+  if (code < 200 || code >= 300) {
+    return { responseCode: code, body: { success: false, error: 'Engine returned HTTP ' + code, raw: text.substring(0, 500) } };
+  }
+  try {
+    return { responseCode: code, body: JSON.parse(text) };
+  } catch (e) {
+    return { responseCode: code, body: { success: false, error: 'Invalid JSON from engine', raw: text.substring(0, 500) } };
+  }
+}
+
+/**
  * Get all social accounts linked to a specific WebFixx project
  * @param {Object} params - Parameters containing projectId
  * @returns {Object} List of accounts with status and basic info
@@ -35,7 +82,7 @@ function getProjectAccounts(params) {
       if (statusCol !== -1 && settingsCol !== -1) {
         campaignsResult.data.forEach(function(row) {
           var status = row[statusCol];
-          if (status && status !== "completed" && status !== "draft") {
+          if (status && status !== "completed" && status !== "draft" && status !== "failed") {
             var settingsVal = row[settingsCol];
             if (settingsVal) {
               try {
@@ -278,20 +325,15 @@ function createNewCampaign(params) {
     };
 
     // 3. Call the external headless engine
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/execute-campaign";
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign"), payload);
+    var result = fetchResult.body;
 
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      headers: {
-        'ngrok-skip-browser-warning': 'true'
-      },
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const result = JSON.parse(response.getContentText());
+    if (!result.success) {
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+        status: "draft",
+        updatedOn: new Date().toISOString()
+      });
+    }
 
     return {
       success: result.success || false,
@@ -403,19 +445,10 @@ function executeCampaign(params) {
     };
 
     // 4. Call the external headless engine
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/execute-campaign";
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign"), payload);
+    var apiResult = fetchResult.body;
 
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const apiResult = JSON.parse(response.getContentText());
-
-    if (apiResult.success || response.getResponseCode() === 200) {
+    if (apiResult.success || fetchResult.responseCode === 200) {
       // Update status to 'running'
       const updates = {
         status: "running",
@@ -455,27 +488,15 @@ function runCampaignPipeline(params) {
     }
 
     // Call the external headless engine pipeline orchestrator
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/pipeline-orchestrator";
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/pipeline-orchestrator"), { campaignId });
+    var result = fetchResult.body;
 
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      headers: {
-        'ngrok-skip-browser-warning': 'true'
-      },
-      payload: JSON.stringify({ campaignId }),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const result = JSON.parse(response.getContentText());
-
-    if (result.success || response.getResponseCode() === 200) {
+    if (result.success || fetchResult.responseCode === 200) {
       // Optimistically mark running so the UI refreshes quickly; the engine
       // will flip it back to paused/failed if a stop guard trips.
       const updates = {
         status: "running",
-        updatedOn: new Date().toLocaleString()
+        updatedOn: new Date().toISOString()
       };
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
 
@@ -714,16 +735,8 @@ function validateCampaignEmails(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/validate-campaign";
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const apiResult = JSON.parse(response.getContentText());
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/validate-campaign"), payload);
+    var apiResult = fetchResult.body;
 
     return {
       success: apiResult.success || false,
@@ -782,16 +795,8 @@ function enrichCampaignLeads(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/enrich-campaign";
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const apiResult = JSON.parse(response.getContentText());
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/enrich-campaign"), payload);
+    var apiResult = fetchResult.body;
 
     return {
       success: apiResult.success || false,
@@ -850,16 +855,8 @@ function personalizeCampaignEmails(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    const EXTERNAL_API = CONFIG.EXTERNAL_API + "/api/personalize-campaign";
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(EXTERNAL_API, options);
-    const apiResult = JSON.parse(response.getContentText());
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/personalize-campaign"), payload);
+    var apiResult = fetchResult.body;
 
     return {
       success: apiResult.success || false,
