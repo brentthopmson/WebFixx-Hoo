@@ -2120,6 +2120,15 @@ function backendMultiFunction(params) {
 
     // ELECTRON SESSION
     getSessionData: () => getSessionData(params),
+
+    // SUPPORT
+    createTicket: () => createTicket(params),
+    getTickets: () => getTickets(params),
+    updateTicket: () => updateTicket(params),
+    saveChatContext: () => saveChatContext(params),
+    getChatContext: () => getChatContext(params),
+    getUserSupportContext: () => getUserSupportContext(params.userId),
+    getSupportSettings: () => getSupportSettings(),
   };
 
   const requestedFunction = functionsMap[params.functionName];
