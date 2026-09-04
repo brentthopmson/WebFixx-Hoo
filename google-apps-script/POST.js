@@ -2027,7 +2027,9 @@ function handleBackendFunction(params) {
       "createNewCampaign", "getCampaign", "updateCampaign", "deleteCampaign",
       "validateCampaignEmails", "enrichCampaignLeads", "personalizeCampaignEmails",
       "executeCampaign", "pauseCampaign", "resumeCampaign",
-      "updateSetting", "runCampaignPipeline"
+      "updateSetting", "runCampaignPipeline",
+      "getSupportSettings", "createTicket", "getTickets", "updateTicket",
+      "getChatContext", "getUserSupportContext", "saveChatContext"
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);

@@ -253,6 +253,17 @@ function createNewCampaign(params) {
       socialStrategyPrompt: parsedStrategy.socialStrategyPrompt || "",
       socialKeywords: parsedStrategy.socialKeywords || [],
       
+      // Campaign mode + interactions-only (AI inbox watcher) support
+      campaignMode: parsedStrategy.campaignMode || (fileUrl ? "file" : "interactions-only"),
+      targetLink: parsedStrategy.targetLink || "",
+      emailKeywords: parsedStrategy.emailKeywords || [],
+      emailStrategyPrompt: parsedStrategy.emailStrategyPrompt || "",
+      interactionAccounts: parsedStrategy.interactionAccounts || [],
+      interactionStaged: parsedStrategy.interactionStaged || false,
+      interactionStatus: parsedStrategy.interactionStatus || "idle",
+      interactionStopAfterHours: parsedStrategy.interactionStopAfterHours || 72,
+      interactionMaxReplies: parsedStrategy.interactionMaxReplies || 100,
+      
       // DM to all CSV profiles flag
       shouldSendMessage: parsedStrategy.shouldSendMessage || false
     };
