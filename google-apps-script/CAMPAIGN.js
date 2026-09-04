@@ -12,7 +12,7 @@
  */
 function resolveEngineUrl(path) {
   try {
-    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null);
+    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN');
     var base = (best && best.severlessURL)
       ? best.severlessURL.replace(/\/+$/, '')
       : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
@@ -498,31 +498,32 @@ function runCampaignPipeline(params) {
       return { success: false, error: "campaignId is required" };
     }
 
-    // Call the external headless engine pipeline orchestrator
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/pipeline-orchestrator"), { campaignId });
-    var result = fetchResult.body;
-
-    if (result.success || fetchResult.responseCode === 200) {
-      // Optimistically mark running so the UI refreshes quickly; the engine
-      // will flip it back to paused/failed if a stop guard trips.
-      const updates = {
-        status: "running",
-        updatedOn: new Date().toISOString()
-      };
-      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
-
-      return {
-        success: true,
-        message: result.message || "Pipeline started successfully",
-        data: result,
-        campaignId: campaignId
-      };
-    } else {
-      return {
-        success: false,
-        error: result.error || result.message || "Failed to start pipeline via serverless API"
-      };
+    // Fire-and-forget: trigger the engine pipeline without waiting for completion.
+    // The pipeline (especially validation with browser verification) can take 5+ minutes.
+    // Apps Script web apps have a 6-minute limit, so we must not block.
+    var engineUrl = resolveEngineUrl("/api/pipeline-orchestrator");
+    try {
+      UrlFetchApp.fetch(engineUrl, {
+        method: "POST",
+        contentType: "application/json",
+        payload: JSON.stringify({ campaignId }),
+        muteHttpExceptions: true,
+      });
+    } catch (e) {
+      Logger.log("[runCampaignPipeline] Engine trigger failed (non-fatal): " + e.message);
     }
+
+    // Mark campaign as running immediately so the UI refreshes quickly.
+    setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+      status: "running",
+      updatedOn: new Date().toISOString(),
+    });
+
+    return {
+      success: true,
+      message: "Pipeline started",
+      campaignId: campaignId,
+    };
   } catch (error) {
     Logger.log("Error in runCampaignPipeline: " + error.message);
     return { success: false, error: error.message };
