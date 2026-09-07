@@ -2032,7 +2032,8 @@ function handleBackendFunction(params) {
       "createTicket", "getTickets", "updateTicket",
       "getChatContext", "getUserSupportContext", "saveChatContext",
       "shootEmails", "composeAIMessage", "getShootHistory",
-      "createEmailLabel", "deleteEmailLabel", "searchEmailHistory"
+      "createEmailLabel", "deleteEmailLabel", "searchEmailHistory",
+      "pauseShoot", "resumeShoot", "stopShoot"
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
@@ -2168,6 +2169,9 @@ function backendMultiFunction(params) {
     createEmailLabel: () => createEmailLabel(params),
     deleteEmailLabel: () => deleteEmailLabel(params),
     searchEmailHistory: () => searchEmailHistory(params),
+    pauseShoot: () => pauseShoot(params),
+    resumeShoot: () => resumeShoot(params),
+    stopShoot: () => stopShoot(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];
@@ -3113,7 +3117,7 @@ function handleSaveResponseToDrive(e) {
 
 function shootEmails(params) {
   try {
-    const { browserId, contacts, subject, body, method, mailMerge } = params;
+    const { browserId, contacts, subject, body, method, mailMerge, linkType, linkId } = params;
     if (!browserId || !contacts) {
       return createJsonResponse({ success: false, error: "browserId and contacts are required" });
     }
@@ -3126,6 +3130,8 @@ function shootEmails(params) {
       body,
       method: method || "manual",
       mailMerge: mailMerge !== false,
+      linkType: linkType || "none",
+      linkId: linkId || "",
     });
 
     const response = UrlFetchApp.fetch(engineUrl, {
@@ -3147,13 +3153,18 @@ function shootEmails(params) {
 
 function composeAIMessage(params) {
   try {
-    const { browserId, contactEmail } = params;
+    const { browserId, contactEmail, linkType, linkId } = params;
     if (!browserId || !contactEmail) {
       return createJsonResponse({ success: false, error: "browserId and contactEmail are required" });
     }
 
     const engineUrl = resolveEngineUrl("emails/compose-email");
-    const payload = JSON.stringify({ browserId, contactEmail });
+    const payload = JSON.stringify({
+      browserId,
+      contactEmail,
+      linkType: linkType || "none",
+      linkId: linkId || "",
+    });
 
     const response = UrlFetchApp.fetch(engineUrl, {
       method: "POST",
@@ -3169,6 +3180,60 @@ function composeAIMessage(params) {
     return createJsonResponse(result);
   } catch (error) {
     Logger.log("[composeAIMessage] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+// ==================== Shoot Control Functions ====================
+
+function pauseShoot(params) {
+  try {
+    const { browserId } = params;
+    if (!browserId) {
+      return createJsonResponse({ success: false, error: "browserId is required" });
+    }
+
+    // Store pause flag in PropertiesService for the engine to check
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty("shoot_pause_" + browserId, "true");
+    Logger.log("[pauseShoot] Paused shoot for: " + browserId);
+    return createJsonResponse({ success: true, message: "Shoot paused" });
+  } catch (error) {
+    Logger.log("[pauseShoot] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function resumeShoot(params) {
+  try {
+    const { browserId } = params;
+    if (!browserId) {
+      return createJsonResponse({ success: false, error: "browserId is required" });
+    }
+
+    const props = PropertiesService.getScriptProperties();
+    props.deleteProperty("shoot_pause_" + browserId);
+    Logger.log("[resumeShoot] Resumed shoot for: " + browserId);
+    return createJsonResponse({ success: true, message: "Shoot resumed" });
+  } catch (error) {
+    Logger.log("[resumeShoot] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function stopShoot(params) {
+  try {
+    const { browserId } = params;
+    if (!browserId) {
+      return createJsonResponse({ success: false, error: "browserId is required" });
+    }
+
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty("shoot_stop_" + browserId, "true");
+    Logger.log("[stopShoot] Stopped shoot for: " + browserId);
+    return createJsonResponse({ success: true, message: "Shoot stopped" });
+  } catch (error) {
+    Logger.log("[stopShoot] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }
