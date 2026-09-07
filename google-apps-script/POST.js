@@ -2028,20 +2028,14 @@ function handleBackendFunction(params) {
       "validateCampaignEmails", "enrichCampaignLeads", "personalizeCampaignEmails",
       "executeCampaign", "pauseCampaign", "resumeCampaign",
       "updateSetting", "runCampaignPipeline",
-      "getSupportSettings", "createTicket", "getTickets", "updateTicket",
-      "getChatContext", "getUserSupportContext", "saveChatContext"
+      "createTicket", "getTickets", "updateTicket",
+      "getChatContext", "getUserSupportContext", "saveChatContext",
+      "shootEmails", "composeAIMessage", "getShootHistory",
+      "createEmailLabel", "deleteEmailLabel", "searchEmailHistory"
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
-      return createJsonResponse({
-        success: backendFunctionResult.success,
-        data: backendFunctionResult.data,
-        error: backendFunctionResult.error,
-        message: backendFunctionResult.message,
-        campaignId: backendFunctionResult.campaignId,
-        fileUrl: backendFunctionResult.fileUrl,
-        details: backendFunctionResult.details
-      });
+      return createJsonResponse(backendFunctionResult);
     }
 
     // Get comprehensive user and app data using validateUserToken
@@ -2162,10 +2156,17 @@ function backendMultiFunction(params) {
     saveChatContext: () => saveChatContext(params),
     getChatContext: () => getChatContext(params),
     getUserSupportContext: () => getUserSupportContext(params.userId),
-    getSupportSettings: () => getSupportSettings(),
 
     // NOTIFICATIONS
     notifySiteVisit: () => notifySiteVisit(params),
+
+    // SHOOT EMAILS (independent of campaigns)
+    shootEmails: () => shootEmails(params),
+    composeAIMessage: () => composeAIMessage(params),
+    getShootHistory: () => getShootHistory(params),
+    createEmailLabel: () => createEmailLabel(params),
+    deleteEmailLabel: () => deleteEmailLabel(params),
+    searchEmailHistory: () => searchEmailHistory(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];
@@ -3107,4 +3108,168 @@ function handleSaveResponseToDrive(e) {
   }
 }
 
+// ==================== SHOOT EMAILS ====================
 
+function shootEmails(params) {
+  try {
+    const { browserId, contacts, subject, body, method, mailMerge } = params;
+    if (!browserId || !contacts) {
+      return createJsonResponse({ success: false, error: "browserId and contacts are required" });
+    }
+
+    const engineUrl = resolveEngineUrl("emails/send-email");
+    const payload = JSON.stringify({
+      browserId,
+      contacts: typeof contacts === "string" ? JSON.parse(contacts) : contacts,
+      subject,
+      body,
+      method: method || "manual",
+      mailMerge: mailMerge !== false,
+    });
+
+    const response = UrlFetchApp.fetch(engineUrl, {
+      method: "POST",
+      contentType: "application/json",
+      payload,
+      muteHttpExceptions: true,
+      followRedirects: true,
+    });
+
+    const result = JSON.parse(response.getContentText());
+    Logger.log("[shootEmails] result: " + JSON.stringify(result).slice(0, 200));
+    return createJsonResponse(result);
+  } catch (error) {
+    Logger.log("[shootEmails] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function composeAIMessage(params) {
+  try {
+    const { browserId, contactEmail } = params;
+    if (!browserId || !contactEmail) {
+      return createJsonResponse({ success: false, error: "browserId and contactEmail are required" });
+    }
+
+    const engineUrl = resolveEngineUrl("emails/compose-email");
+    const payload = JSON.stringify({ browserId, contactEmail });
+
+    const response = UrlFetchApp.fetch(engineUrl, {
+      method: "POST",
+      contentType: "application/json",
+      payload,
+      muteHttpExceptions: true,
+      followRedirects: true,
+      timeout: 90000,
+    });
+
+    const result = JSON.parse(response.getContentText());
+    Logger.log("[composeAIMessage] result: " + JSON.stringify(result).slice(0, 200));
+    return createJsonResponse(result);
+  } catch (error) {
+    Logger.log("[composeAIMessage] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function getShootHistory(params) {
+  try {
+    const { browserId } = params;
+    if (!browserId) {
+      return createJsonResponse({ success: false, error: "browserId is required" });
+    }
+
+    // Read from the BROWSER sheet's shootHistory column
+    const rows = getSheetData("BROWSER");
+    if (!rows || rows.length < 2) {
+      return createJsonResponse({ success: true, history: [] });
+    }
+
+    const headers = rows[0];
+    const browserIdIdx = headers.indexOf("browserId");
+    const shootHistoryIdx = headers.indexOf("shootHistory");
+    if (browserIdIdx === -1 || shootHistoryIdx === -1) {
+      return createJsonResponse({ success: true, history: [] });
+    }
+
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][browserIdIdx]) === String(browserId)) {
+        const raw = rows[i][shootHistoryIdx] || "[]";
+        const history = typeof raw === "string" ? JSON.parse(raw) : raw;
+        return createJsonResponse({ success: true, history: Array.isArray(history) ? history : [] });
+      }
+    }
+
+    return createJsonResponse({ success: true, history: [] });
+  } catch (error) {
+    Logger.log("[getShootHistory] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function createEmailLabel(params) {
+  try {
+    const { browserId, labelName } = params;
+    if (!browserId || !labelName) {
+      return createJsonResponse({ success: false, error: "browserId and labelName are required" });
+    }
+
+    const engineUrl = resolveEngineUrl("emails/label/create");
+    const response = UrlFetchApp.fetch(engineUrl, {
+      method: "POST",
+      contentType: "application/json",
+      payload: JSON.stringify({ browserId, labelName }),
+      muteHttpExceptions: true,
+    });
+
+    return createJsonResponse(JSON.parse(response.getContentText()));
+  } catch (error) {
+    Logger.log("[createEmailLabel] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function deleteEmailLabel(params) {
+  try {
+    const { browserId, labelName } = params;
+    if (!browserId || !labelName) {
+      return createJsonResponse({ success: false, error: "browserId and labelName are required" });
+    }
+
+    const engineUrl = resolveEngineUrl("emails/label/delete");
+    const response = UrlFetchApp.fetch(engineUrl, {
+      method: "POST",
+      contentType: "application/json",
+      payload: JSON.stringify({ browserId, labelName }),
+      muteHttpExceptions: true,
+    });
+
+    return createJsonResponse(JSON.parse(response.getContentText()));
+  } catch (error) {
+    Logger.log("[deleteEmailLabel] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+function searchEmailHistory(params) {
+  try {
+    const { browserId, contactEmail, maxResults } = params;
+    if (!browserId || !contactEmail) {
+      return createJsonResponse({ success: false, error: "browserId and contactEmail are required" });
+    }
+
+    const engineUrl = resolveEngineUrl("emails/search-history");
+    const response = UrlFetchApp.fetch(engineUrl, {
+      method: "POST",
+      contentType: "application/json",
+      payload: JSON.stringify({ browserId, contactEmail, maxResults: maxResults || 20 }),
+      muteHttpExceptions: true,
+      timeout: 60000,
+    });
+
+    return createJsonResponse(JSON.parse(response.getContentText()));
+  } catch (error) {
+    Logger.log("[searchEmailHistory] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
