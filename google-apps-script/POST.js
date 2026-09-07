@@ -16,6 +16,7 @@ const CONFIG = {
     USERS: "1EpxeonSw7wrvzSjiqRPKkIFRUHoZR_Pp",
     PROFILE_PICTURE: "1TwKBloBke5GQav9h5knkO0lk7ezo-PR8",
     CAMPAIGNS: "1ndSyFTzxAiWrAknA_H5gutcJf-kejfeY",
+    HUB: "1Xo6HALrBHOtky-d25OTdTgYtBXfV5Wwi",
   },
   CACHE_EXPIRED_IN_SECONDS: 21600, // 6 hours
   EXTERNAL_API: "https://670d-41-190-12-74.ngrok-free.app"
