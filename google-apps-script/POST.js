@@ -2033,7 +2033,8 @@ function handleBackendFunction(params) {
       "getChatContext", "getUserSupportContext", "saveChatContext",
       "shootEmails", "composeAIMessage", "getShootHistory",
       "createEmailLabel", "deleteEmailLabel", "searchEmailHistory",
-      "pauseShoot", "resumeShoot", "stopShoot"
+      "pauseShoot", "resumeShoot", "stopShoot",
+      "cleanupShootFlags", "cleanupOldShootFlags"
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
@@ -2172,6 +2173,8 @@ function backendMultiFunction(params) {
     pauseShoot: () => pauseShoot(params),
     resumeShoot: () => resumeShoot(params),
     stopShoot: () => stopShoot(params),
+    cleanupShootFlags: () => cleanupShootFlags(params),
+    cleanupOldShootFlags: () => cleanupOldShootFlags(params),
   };
 
   const requestedFunction = functionsMap[params.functionName];
@@ -3140,6 +3143,7 @@ function shootEmails(params) {
       payload,
       muteHttpExceptions: true,
       followRedirects: true,
+      timeout: 120000,  // 2 minutes for large batches
     });
 
     const result = JSON.parse(response.getContentText());
@@ -3235,6 +3239,49 @@ function stopShoot(params) {
   } catch (error) {
     Logger.log("[stopShoot] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+// Cleanup functions for PropertiesService key management
+function cleanupShootFlags(browserId) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.deleteProperty("shoot_pause_" + browserId);
+    props.deleteProperty("shoot_stop_" + browserId);
+    Logger.log("[cleanupShootFlags] Cleaned up flags for: " + browserId);
+  } catch (error) {
+    Logger.log("[cleanupShootFlags] Error: " + error.message);
+  }
+}
+
+function cleanupOldShootFlags() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const allProps = props.getProperties();
+    const now = Date.now();
+    const ONE_HOUR = 3600000;
+    let cleaned = 0;
+
+    for (const [key, value] of Object.entries(allProps)) {
+      if (key.startsWith("shoot_pause_") || key.startsWith("shoot_stop_")) {
+        try {
+          const timestamp = parseInt(value, 10);
+          if (!isNaN(timestamp) && (now - timestamp) > ONE_HOUR) {
+            props.deleteProperty(key);
+            cleaned++;
+          }
+        } catch {
+          props.deleteProperty(key);
+          cleaned++;
+        }
+      }
+    }
+
+    if (cleaned > 0) {
+      Logger.log("[cleanupOldShootFlags] Cleaned " + cleaned + " expired flags");
+    }
+  } catch (error) {
+    Logger.log("[cleanupOldShootFlags] Error: " + error.message);
   }
 }
 
