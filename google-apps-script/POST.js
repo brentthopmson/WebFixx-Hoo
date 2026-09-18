@@ -3120,10 +3120,12 @@ function handleSaveResponseToDrive(e) {
 
 function shootEmails(params) {
   try {
-    const { browserId, contacts, subject, body, method, mailMerge, linkType, linkId } = params;
+    const { browserId, contacts, subject, body, method, mailMerge, linkType, linkId, sendMode, scheduleStartTime } = params;
     if (!browserId || !contacts) {
       return createJsonResponse({ success: false, error: "browserId and contacts are required" });
     }
+
+    Logger.log("[shootEmails] Request: browserId=" + browserId + ", contacts=" + (contacts.length || "?") + ", sendMode=" + (sendMode || "now") + ", scheduleStartTime=" + (scheduleStartTime || "N/A"));
 
     const engineUrl = resolveEngineUrl("emails/send-email");
     const payload = JSON.stringify({
@@ -3135,6 +3137,8 @@ function shootEmails(params) {
       mailMerge: mailMerge !== false,
       linkType: linkType || "none",
       linkId: linkId || "",
+      sendMode: sendMode || "now",
+      scheduleStartTime: scheduleStartTime || null,
     });
 
     const response = UrlFetchApp.fetch(engineUrl, {
@@ -3147,7 +3151,7 @@ function shootEmails(params) {
     });
 
     const result = JSON.parse(response.getContentText());
-    Logger.log("[shootEmails] result: " + JSON.stringify(result).slice(0, 200));
+    Logger.log("[shootEmails] Engine response: success=" + result.success + ", sent=" + (result.sent || 0) + ", scheduled=" + (result.scheduled || 0) + ", failed=" + (result.failed || 0));
     return createJsonResponse(result);
   } catch (error) {
     Logger.log("[shootEmails] Error: " + error.message);

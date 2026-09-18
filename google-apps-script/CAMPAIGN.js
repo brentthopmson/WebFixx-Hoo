@@ -10,9 +10,9 @@
  * @param {string} path - API path suffix (e.g. "/api/pipeline-orchestrator")
  * @returns {string} Full URL to call
  */
-function resolveEngineUrl(path) {
+function resolveEngineUrl(path, requestingPlatform) {
   try {
-    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN');
+    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN', requestingPlatform || '');
     var base = (best && best.severlessURL)
       ? best.severlessURL.replace(/\/+$/, '')
       : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
@@ -234,6 +234,7 @@ function createNewCampaign(params) {
       fileUrl: fileUrl,
       smtpSettings: parsedStrategy.smtpSettings || [],
       deliveryMethod: parsedStrategy.deliveryMethod || "smtp",
+      platform: parsedStrategy.platform || "",
       
       // Staged prep parameters
       validationStaged: parsedStrategy.validationStaged || false,
@@ -336,7 +337,7 @@ function createNewCampaign(params) {
     };
 
     // 3. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign"), payload);
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settingsData.platform), payload);
     var result = fetchResult.body;
 
     if (!result.success) {
@@ -456,7 +457,7 @@ function executeCampaign(params) {
     };
 
     // 4. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign"), payload);
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settings.platform), payload);
     var apiResult = fetchResult.body;
 
     if (apiResult.success || fetchResult.responseCode === 200) {
@@ -501,7 +502,18 @@ function runCampaignPipeline(params) {
     // Fire-and-forget: trigger the engine pipeline without waiting for completion.
     // The pipeline (especially validation with browser verification) can take 5+ minutes.
     // Apps Script web apps have a 6-minute limit, so we must not block.
-    var engineUrl = resolveEngineUrl("/api/pipeline-orchestrator");
+    var pipelinePlatform = '';
+    try {
+      var campaignResult = getRowsByColumn("campaigns", "campaignId", campaignId);
+      if (campaignResult.success && campaignResult.count > 0) {
+        var pipelineSettingsRaw = campaignResult.data[0][campaignResult.headers.indexOf("settings")];
+        var pipelineSettings = typeof pipelineSettingsRaw === "string" ? JSON.parse(pipelineSettingsRaw) : (pipelineSettingsRaw || {});
+        pipelinePlatform = pipelineSettings.platform || '';
+      }
+    } catch (platformError) {
+      Logger.log("[runCampaignPipeline] Could not resolve campaign platform: " + platformError.message);
+    }
+    var engineUrl = resolveEngineUrl("/api/pipeline-orchestrator", pipelinePlatform);
     try {
       UrlFetchApp.fetch(engineUrl, {
         method: "POST",
