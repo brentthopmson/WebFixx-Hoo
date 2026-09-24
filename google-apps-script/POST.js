@@ -1792,28 +1792,24 @@ function runSmartExtract(params) {
     }
 
     const cat = String(category).toUpperCase();
-    const externalApi = CONFIG.EXTERNAL_API;
-    let extractEndpoint = '';
-
-    switch (cat) {
-      case 'WIRE':
-        extractEndpoint = externalApi + '/emails/email-extract';
-        break;
-      case 'BANK':
-        extractEndpoint = externalApi + '/banks/bank-extract';
-        break;
-      case 'SOCIAL':
-        extractEndpoint = externalApi + '/socials/social-extract';
-        break;
-      default:
-        return { success: false, error: "Invalid category. Must be WIRE, BANK, or SOCIAL" };
+    const nicheToPath = {
+      WIRE: '/emails/email-extract',
+      BANK: '/banks/bank-extract',
+      SOCIAL: '/socials/social-extract'
+    };
+    const extractPath = nicheToPath[cat];
+    if (!extractPath) {
+      return { success: false, error: "Invalid category. Must be WIRE, BANK, or SOCIAL" };
     }
+
+    const extractEndpoint = resolveEngineUrl(extractPath, '');
 
     Logger.log("runSmartExtract calling: " + extractEndpoint + " browserId=" + browserId + " category=" + cat);
 
     const response = UrlFetchApp.fetch(extractEndpoint, {
       method: 'POST',
       contentType: 'application/json',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
       payload: JSON.stringify({
         browserId: browserId,
         category: cat
@@ -1822,7 +1818,13 @@ function runSmartExtract(params) {
     });
 
     const responseCode = response.getResponseCode();
-    const responseBody = JSON.parse(response.getContentText());
+    let responseBody;
+    try {
+      responseBody = JSON.parse(response.getContentText());
+    } catch (parseErr) {
+      Logger.log("runSmartExtract JSON parse failed: " + response.getContentText().substring(0, 200));
+      return { success: false, error: "Extract failed: server returned non-JSON (status " + responseCode + ")" };
+    }
 
     if (responseCode === 200 && responseBody.success) {
       return {
