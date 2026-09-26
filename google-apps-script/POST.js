@@ -36,7 +36,18 @@ function doPost(e) {
   const _postStart = Date.now();
   try {
     Logger.log("Received POST request");
-    const params = e.parameter;
+    const params = e.parameter || {};
+    // Large payloads are sent as a raw JSON body (application/json) because
+    // urlencoded parameter POSTs hit Apps Script's redirect/parameter size limit
+    // (~50KB) and come back as an HTML page instead of JSON. Merge the parsed
+    // body into params so every action/validator below works unchanged.
+    if (e && e.postData && e.postData.contents) {
+      try {
+        Object.assign(params, JSON.parse(e.postData.contents));
+      } catch (parseErr) {
+        // urlencoded bodies are not JSON — ignore; e.parameter already holds them.
+      }
+    }
     const traceId = params.traceId || "n/a";
     Logger.log(`[api][${traceId}] action=${params.action || "?"} start=${_postStart}`);
     
@@ -95,6 +106,8 @@ function doPost(e) {
         return handleSetMultipleCellData(params);
       case "saveResponseToDrive":
         return handleSaveResponseToDrive(e);
+      case "saveExtractToDrive":
+        return handleSaveExtractToDrive(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -3184,6 +3197,91 @@ function handleSaveResponseToDrive(e) {
     });
   } catch (error) {
     Logger.log("Error in handleSaveResponseToDrive: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Chunked App Script fallback for saving an extract JSON (wire/social/bank) to
+ * Drive when the engine's own OAuth token is invalid. Mirrors the engine's
+ * createOrUpdateJsonFile layout: CONFIG.FOLDER_ID.HUB/{browserId}/{fileName}.
+ *
+ * Apps Script web-app POSTs larger than ~50KB come back as an HTML page, so the
+ * engine splits the minified JSON into <=32KB chunks and this handler appends
+ * them sequentially (partIndex 0 overwrites, later parts append). The final part
+ * shares the file "anyone with link = viewer" so WebFixx /api/drive-csv can
+ * fetch it, and returns the fileId reference stored in the hub cell.
+ */
+// getContent/setContent are missing on some File instances in this runtime —
+// fall back to blob-based read/write which every DriveApp build supports.
+function readExtractText_(file) {
+  try {
+    if (typeof file.getContent === 'function') return file.getContent();
+  } catch (err) { /* fall through to blob */ }
+  return file.getBlob().getDataAsString();
+}
+
+function writeExtractText_(file, content) {
+  try {
+    if (typeof file.setContent === 'function') {
+      file.setContent(content);
+      return;
+    }
+  } catch (err) { /* fall through to blob */ }
+  file.setBlob(Utilities.newBlob(content, MimeType.PLAIN_TEXT, file.getName()));
+}
+
+function handleSaveExtractToDrive(params) {
+  try {
+    const { browserId, fileName, chunk, partIndex, totalParts } = params;
+    const idx = parseInt(partIndex, 10);
+    const total = parseInt(totalParts, 10);
+    if (!browserId || !fileName || typeof chunk !== 'string' || isNaN(idx) || isNaN(total) || idx < 0 || total < 1 || idx >= total) {
+      return createJsonResponse({ success: false, error: "Missing/invalid params: browserId, fileName, chunk, partIndex, totalParts" });
+    }
+
+    const hubFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID.HUB);
+
+    let browserFolder = null;
+    const folders = hubFolder.getFoldersByName(String(browserId));
+    if (folders.hasNext()) {
+      browserFolder = folders.next();
+    } else {
+      browserFolder = hubFolder.createFolder(String(browserId));
+    }
+
+    let file = null;
+    const files = browserFolder.getFilesByName(fileName);
+    if (files.hasNext()) {
+      file = files.next();
+    }
+
+    let content;
+    if (idx === 0 || !file) {
+      content = chunk;
+      if (file) {
+        writeExtractText_(file, content);
+      } else {
+        file = browserFolder.createFile(fileName, content, MimeType.PLAIN_TEXT);
+      }
+    } else {
+      content = readExtractText_(file) + chunk;
+      writeExtractText_(file, content);
+    }
+
+    if (idx === total - 1) {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      return createJsonResponse({
+        success: true,
+        fileId: file.getId(),
+        fileName: fileName,
+        size: content.length,
+        url: file.getUrl()
+      });
+    }
+    return createJsonResponse({ success: true, pending: true, part: idx + 1, of: total });
+  } catch (error) {
+    Logger.log("Error in handleSaveExtractToDrive: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }
