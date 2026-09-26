@@ -1514,6 +1514,72 @@ function toggleAutoVerify(params) {
   }
 }
 
+function saveSearchParams(params) {
+  try {
+    Logger.log("Starting saveSearchParams with params:", params);
+    const { userId } = params;
+    let searchParams = params.searchParams;
+
+    if (!userId) {
+      return { success: false, error: "Missing required field: userId is required" };
+    }
+
+    // Accept array or comma-separated string; normalize to deduped CSV
+    if (Array.isArray(searchParams)) {
+      searchParams = searchParams.join(",");
+    }
+    searchParams = String(searchParams || "")
+      .split(",")
+      .map(function (t) { return t.trim().toLowerCase(); })
+      .filter(Boolean);
+    searchParams = searchParams.filter(function (t, i) { return searchParams.indexOf(t) === i; });
+    const csv = searchParams.join(",");
+
+    const userResult = getRowsByColumn("user", "userId", userId);
+    if (!userResult.success || userResult.count === 0) {
+      return { success: false, error: "User not found" };
+    }
+
+    // Create the searchParams column if the sheet doesn't have it yet
+    if (userResult.headers.indexOf("searchParams") === -1) {
+      const userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("user");
+      userSheet.getRange(1, userSheet.getLastColumn() + 1).setValue("searchParams");
+      Logger.log("saveSearchParams: created missing searchParams column on user sheet");
+      userResult.headers.push("searchParams");
+    }
+
+    const updateResult = setMultipleCellDataByColumnSearch("user", "userId", userId, {
+      searchParams: csv
+    });
+    if (!updateResult.success) {
+      return { success: false, error: "Failed to save search params: " + updateResult.error };
+    }
+
+    const updatedUserResult = getRowsByColumn("user", "userId", userId);
+    let updatedUser = null;
+    if (updatedUserResult.success && updatedUserResult.count > 0) {
+      const uHeaders = updatedUserResult.headers;
+      const uData = updatedUserResult.data[0];
+      updatedUser = {};
+      for (let i = 0; i < uHeaders.length; i++) {
+        updatedUser[uHeaders[i]] = uData[i];
+      }
+      updatedUser["searchParams"] = csv;
+    }
+
+    Logger.log("saveSearchParams: userId=" + userId + " saved terms=" + csv);
+    return {
+      success: true,
+      message: "Search params saved successfully.",
+      user: updatedUser,
+      data: { searchParams: csv }
+    };
+  } catch (error) {
+    Logger.log("Error in saveSearchParams:", error.message);
+    return { success: false, error: "Server error: " + error.message };
+  }
+}
+
 function verifySession(params) {
   try {
     Logger.log("Starting verifySession with params:", params);
@@ -2140,6 +2206,7 @@ function backendMultiFunction(params) {
     toggleTwoFactorAuth: () => toggleTwoFactorAuth(params),
     visitNotification: () => visitNotification(params),
     toggleAutoVerify: () => toggleAutoVerify(params),
+    saveSearchParams: () => saveSearchParams(params),
 
     // SETTINGS (ADMIN ONLY)
     updateSetting: () => updateSetting(params),
@@ -2370,6 +2437,7 @@ function _validateUserTokenUncached(token) {
       darkMode: user[headers.indexOf("darkMode")],
       twoFactorAuth: user[headers.indexOf("twoFactorAuth")],
       autoVerifySessions: user[headers.indexOf("autoVerifySessions")] || "FALSE",
+      searchParams: user[headers.indexOf("searchParams")] || "",
       verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
       balance: user[headers.indexOf("balance")] || "0.00",
       pendingBalance: user[headers.indexOf("pendingBalance")] || "0.00",
@@ -2827,6 +2895,7 @@ function updateAppData(params) {
       darkMode: user[headers.indexOf("darkMode")] || "FALSE",
       twoFactorAuth: user[headers.indexOf("twoFactorAuth")] || "FALSE",
       autoVerifySessions: user[headers.indexOf("autoVerifySessions")] || "FALSE",
+      searchParams: user[headers.indexOf("searchParams")] || "",
       verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
       balance: user[headers.indexOf("balance")] || "0.00",
       plan: user[headers.indexOf("plan")] || "FREE",
@@ -2888,6 +2957,7 @@ function getAppDataLite(params) {
       darkMode: user[headers.indexOf("darkMode")] || "FALSE",
       twoFactorAuth: user[headers.indexOf("twoFactorAuth")] || "FALSE",
       autoVerifySessions: user[headers.indexOf("autoVerifySessions")] || "FALSE",
+      searchParams: user[headers.indexOf("searchParams")] || "",
       verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
       balance: user[headers.indexOf("balance")] || "0.00",
       plan: user[headers.indexOf("plan")] || "FREE",
