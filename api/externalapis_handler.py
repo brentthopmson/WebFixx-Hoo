@@ -55,6 +55,7 @@ _WRITE_FUNCTIONS = {
     'notifyFormSubmission',
     'updateProcess',
     'poolingOperator',
+    'saveSearchParams',
 }
 
 def _prune_token_cache():
@@ -206,17 +207,20 @@ class ExternalApisHandler:
 
     def _safe_json(self, response):
         """Parse JSON response safely, handling empty bodies and non-200 status codes."""
+        _ctype = (response.headers.get('Content-Type') or '')
+        _preview = (response.text or '')[:300]
+        _details = {'httpStatus': response.status_code, 'contentType': _ctype, 'bodyPreview': _preview}
         if response.status_code != 200:
             self.logger.warning(f"Non-200 response from AppScript: {response.status_code}")
-            return {'error': f'Server returned status {response.status_code}', 'success': False}
+            return {'error': f'Server returned status {response.status_code}', 'success': False, 'details': _details}
         if not response.text or not response.text.strip():
             self.logger.warning("Empty response body from AppScript")
-            return {'error': 'Empty response from server', 'success': False}
+            return {'error': 'Empty response from server', 'success': False, 'details': _details}
         try:
             return response.json()
         except ValueError as e:
             self.logger.error(f"JSON parsing error: {str(e)} | Body: {response.text[:500]}")
-            return {'error': f'Invalid JSON response: {str(e)}', 'success': False}
+            return {'error': f'Invalid JSON response: {str(e)}', 'success': False, 'details': _details}
 
     def notify_form_submission(self, form_data):
         """Handle form submission notification"""
@@ -486,11 +490,22 @@ class ExternalApisHandler:
                     result_user_id = req_uid or ((result.get('user') or {}).get('userId'))
                     if result.get('success') is False:
                         # Transient statuses (404/429/5xx) under throttling: retry once.
-                        # Empty body / invalid JSON / real business errors: do NOT retry.
                         if status in (404, 429) or status >= 500:
                             if attempt == 0:
                                 self.logger.warning(f"[Backend] Transient status {status} for {function_name}. Retrying once...")
                                 continue
+                        # GAS sometimes answers 200 with an HTML/quota interstitial
+                        # instead of JSON (the script usually never ran in that case).
+                        # Retry once; if it persists the details.bodyPreview in the
+                        # returned error shows exactly what Apps Script sent back.
+                        _err = str(result.get('error') or '')
+                        if attempt == 0 and (_err.startswith('Invalid JSON response') or _err == 'Empty response from server'):
+                            self.logger.warning(
+                                f"[Backend] Non-JSON AppScript response for {function_name} "
+                                f"(details={result.get('details')}). Retrying once..."
+                            )
+                            time.sleep(2)
+                            continue
                         self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
                         # A failed write may have partially mutated data — drop stale cache.
                         _invalidate_user(result_user_id)
