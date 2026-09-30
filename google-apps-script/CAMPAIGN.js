@@ -8,11 +8,13 @@
  * Uses getBestServerlessEndpoint to pick from the "links" sheet,
  * falling back to CONFIG.EXTERNAL_API if nothing is available.
  * @param {string} path - API path suffix (e.g. "/api/pipeline-orchestrator")
+ * @param {string} [requestingPlatform] - severlessPlatform filter (e.g. 'GMAIL', 'TIKTOK')
+ * @param {string} [requestingServerType] - severlessType filter (EMAIL|SOCIAL|BANK). Omit = no type filter.
  * @returns {string} Full URL to call
  */
-function resolveEngineUrl(path, requestingPlatform) {
+function resolveEngineUrl(path, requestingPlatform, requestingServerType) {
   try {
-    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN', requestingPlatform || '');
+    var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN', requestingPlatform || '', requestingServerType || '');
     var base = (best && best.severlessURL)
       ? best.severlessURL.replace(/\/+$/, '')
       : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
@@ -21,6 +23,17 @@ function resolveEngineUrl(path, requestingPlatform) {
     Logger.log('[resolveEngineUrl] fallback to CONFIG.EXTERNAL_API: ' + e.message);
     return String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '') + path;
   }
+}
+
+/**
+ * Map a campaign channel to a severlessType filter value.
+ * Unknown/absent channel → '' (no type filter = legacy selection behavior).
+ */
+function channelToServerType(channel) {
+  if (channel === 'social') return 'SOCIAL';
+  if (channel === 'bank') return 'BANK';
+  if (channel === 'email') return 'EMAIL';
+  return '';
 }
 
 /**
@@ -338,7 +351,7 @@ function createNewCampaign(params) {
     };
 
     // 3. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settingsData.platform), payload);
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settingsData.platform, channelToServerType(settingsData.channel)), payload);
     var result = fetchResult.body;
 
     if (!result.success) {
@@ -458,7 +471,7 @@ function executeCampaign(params) {
     };
 
     // 4. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settings.platform), payload);
+    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settings.platform, channelToServerType(settings.channel)), payload);
     var apiResult = fetchResult.body;
 
     if (apiResult.success || fetchResult.responseCode === 200) {
