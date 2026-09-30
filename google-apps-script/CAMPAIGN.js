@@ -231,6 +231,7 @@ function createNewCampaign(params) {
       name: parsedStrategy.name || campaignId,
       subject: parsedStrategy.subject || "",
       body: parsedStrategy.body || "",
+      replyFolder: parsedStrategy.replyFolder || "",
       fileUrl: fileUrl,
       smtpSettings: parsedStrategy.smtpSettings || [],
       deliveryMethod: parsedStrategy.deliveryMethod || "smtp",

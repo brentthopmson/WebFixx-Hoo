@@ -3291,7 +3291,7 @@ function handleSaveExtractToDrive(params) {
 
 function shootEmails(params) {
   try {
-    const { browserId, contacts, subject, body, method, mailMerge, linkType, linkId, sendMode, scheduleStartTime } = params;
+    const { browserId, contacts, subject, body, method, mailMerge, linkType, linkId, sendMode, scheduleStartTime, replyFolder } = params;
     if (!browserId || !contacts) {
       return createJsonResponse({ success: false, error: "browserId and contacts are required" });
     }
@@ -3310,6 +3310,7 @@ function shootEmails(params) {
       linkId: linkId || "",
       sendMode: sendMode || "now",
       scheduleStartTime: scheduleStartTime || null,
+      replyFolder: replyFolder || "",
     });
 
     const response = UrlFetchApp.fetch(engineUrl, {
