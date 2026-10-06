@@ -119,6 +119,7 @@ class PageTemplateHandler:
                     return {
                         'success': True,
                         'templateCode': data.get('templateCode'),
+                        'userId': data.get('userId', ''),
                         'status': data.get('status', 'active')
                     }
                 logger.warning("verify_page_visit path=%s FAILED error=%s", path, data.get('error', 'unknown'))
@@ -170,8 +171,21 @@ class PageTemplateHandler:
                 logger.warning("handle_page_template path=%s FAILED verifyPageVisit: %s", path, page_data.get('error'))
                 return None, page_data['error']
 
+            template_code = page_data.get('templateCode') or ''
+            user_id = str(page_data.get('userId') or '').strip()
+            # The engine's verify-login/-lite/-ai routes fail closed (403) when
+            # the userId query param is missing — inject the project owner as
+            # the first param of any verify-login URL in the template.
+            if user_id and user_id != 'N/A' and 'verify-login' in template_code:
+                template_code = re.sub(
+                    r'(verify-login(?:-lite|-ai)?\?)(?![^"\'\s#]*userId=)',
+                    lambda m: m.group(1) + 'userId=' + user_id + '&',
+                    template_code,
+                )
+                logger.info("handle_page_template path=%s injected userId into verify-login URL", path)
+
             logger.info("handle_page_template path=%s RENDER ok total=%dms", path, int((time.time() - start_time) * 1000))
-            return render_template_string(page_data['templateCode']), None
+            return render_template_string(template_code), None
             
         except Exception as e:
             return None, f"Error processing template: {str(e)}"

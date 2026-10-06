@@ -144,7 +144,7 @@ def notify_form_submission():
                 app.logger.warning(f"notify-form-submission exception (attempt {attempt+1}): {str(e)}, retrying...")
             else:
                 app.logger.error(f"notify-form-submission error after retries: {str(e)}")
-    return jsonify({'success': True, 'apiResponse': {}})
+    return jsonify({'success': False, 'apiResponse': {'error': 'Backend unreachable'}}), 503
     
 @app.route('/api/pooling-operator', methods=['POST'])
 @limiter.limit("100 per minute")

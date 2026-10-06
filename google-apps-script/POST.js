@@ -3296,11 +3296,26 @@ function shootEmails(params) {
       return createJsonResponse({ success: false, error: "browserId and contacts are required" });
     }
 
-    Logger.log("[shootEmails] Request: browserId=" + browserId + ", contacts=" + (contacts.length || "?") + ", sendMode=" + (sendMode || "now") + ", scheduleStartTime=" + (scheduleStartTime || "N/A"));
+    // USER tier identity for the engine's monthly shootContactsUsage quota:
+    // derive the caller from the secured-call token (userId|role|ts|rand).
+    let userId = params.userId || "";
+    if (!userId && params.token) {
+      try {
+        const tokenCheck = verifyToken(params.token);
+        if (tokenCheck && tokenCheck.success && tokenCheck.userId) {
+          userId = tokenCheck.userId;
+        }
+      } catch (tokenErr) {
+        Logger.log("[shootEmails] token userId derivation failed: " + tokenErr.message);
+      }
+    }
+
+    Logger.log("[shootEmails] Request: browserId=" + browserId + ", contacts=" + (contacts.length || "?") + ", sendMode=" + (sendMode || "now") + ", scheduleStartTime=" + (scheduleStartTime || "N/A") + ", userId=" + (userId || "none"));
 
     const engineUrl = resolveEngineUrl("emails/send-email", '', 'EMAIL');
     const payload = JSON.stringify({
       browserId,
+      userId: userId || null,
       contacts: typeof contacts === "string" ? JSON.parse(contacts) : contacts,
       subject,
       body,
