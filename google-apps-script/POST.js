@@ -854,6 +854,7 @@ function handleLogin(params) {
       role: role,
       plan: user[headers.indexOf("plan")] || "FREE",
       planExpiry: user[headers.indexOf("planExpiry")] || "",
+      usage: user[headers.indexOf("usage")] || "",
       verifyStatus: user[verifyStatusIndex] || "FALSE", // Use updated verifyStatus
       balance: user[headers.indexOf("balance")] || "0.00",
       pendingBalance: user[headers.indexOf("pendingBalance")] || "0.00",
@@ -1640,6 +1641,7 @@ function verifySession(params) {
     }
 
     // Call the external verification endpoint
+    writeHubVerifyStatus_(browserId, 'RUNNING');
     try {
       const response = UrlFetchApp.fetch(verifyEndpoint, {
         method: 'POST',
@@ -1647,7 +1649,8 @@ function verifySession(params) {
         payload: JSON.stringify({
           browserId: browserId,
           cookieJSON: cookieJSON,
-          category: category.toUpperCase()
+          category: category.toUpperCase(),
+          userId: userId
         }),
         muteHttpExceptions: true
       });
@@ -1673,12 +1676,25 @@ function verifySession(params) {
 
         // Update hub and projects
         updateHubAndProjectsFromCookieData(browserId);
+        writeHubVerifyStatus_(browserId, responseBody.status === 'FAILED' ? 'FAILED' : 'COMPLETED');
 
         return {
           success: true,
           status: responseBody.status,
           message: responseBody.message,
           lastVerifyData: lastVerifyData
+        };
+      } else if (responseCode === 429 || responseBody.limitReached || responseBody.userMonthlyLimit) {
+        // Monthly verifyLoginUsage exhausted — quota gate, NOT a dead session.
+        // Leave the cookie row untouched and surface the limit to the caller.
+        const limitMessage = responseBody.message || responseBody.error || 'Monthly verification limit reached';
+        writeHubVerifyStatus_(browserId, 'LIMIT_REACHED');
+        Logger.log(`verifySession limit reached for ${browserId}: ${limitMessage}`);
+        return {
+          success: false,
+          limitReached: true,
+          status: 'LIMIT_REACHED',
+          message: limitMessage
         };
       } else {
         // Verification failed
@@ -1697,6 +1713,7 @@ function verifySession(params) {
         });
 
         updateHubAndProjectsFromCookieData(browserId);
+        writeHubVerifyStatus_(browserId, 'FAILED');
 
         return {
           success: false,
@@ -1796,13 +1813,15 @@ function autoVerifyStaleSessions() {
                 verifyEndpoint = `${externalApi}/emails/verify-session`;
             }
             
+            writeHubVerifyStatus_(browserId, 'RUNNING');
             const response = UrlFetchApp.fetch(verifyEndpoint, {
               method: 'POST',
               contentType: 'application/json',
               payload: JSON.stringify({
                 browserId: browserId,
                 cookieJSON: cookieRow.cookieJSON,
-                category: category.toUpperCase()
+                category: category.toUpperCase(),
+                userId: userId
               }),
               muteHttpExceptions: true
             });
@@ -1826,9 +1845,18 @@ function autoVerifyStaleSessions() {
               });
               
               updateHubAndProjectsFromCookieData(browserId);
+              writeHubVerifyStatus_(browserId, responseBody.status === 'FAILED' ? 'FAILED' : 'COMPLETED');
               verifiedCount++;
+            } else if (responseCode === 429 || responseBody.limitReached || responseBody.userMonthlyLimit) {
+              // Monthly verifyLoginUsage exhausted — quota gate, not a dead
+              // session. Leave the cookie row untouched and skip this user's
+              // remaining rows (they would only fast-429).
+              const limitMessage = responseBody.message || responseBody.error || 'Monthly verification limit reached';
+              writeHubVerifyStatus_(browserId, 'LIMIT_REACHED');
+              Logger.log(`Auto-verify limit reached for user ${userId}: ${limitMessage} — skipping remaining sessions`);
+              break;
             } else {
-              // Verification failed â€” update cookie + hub so dashboard reflects FAILED state
+              // Verification failed — update cookie + hub so dashboard reflects FAILED state
               const failLastVerifyData = JSON.stringify({
                 timestamp: new Date().toISOString(),
                 status: 'FAILED',
@@ -1844,6 +1872,7 @@ function autoVerifyStaleSessions() {
               });
 
               updateHubAndProjectsFromCookieData(browserId);
+              writeHubVerifyStatus_(browserId, 'FAILED');
               Logger.log(`Auto-verify marked FAILED for ${browserId}`);
             }
           } catch (verifyError) {
@@ -2447,6 +2476,7 @@ function _validateUserTokenUncached(token) {
       role: decoded.role,
       plan: user[headers.indexOf("plan")],
       planExpiry: user[headers.indexOf("planExpiry")],
+      usage: user[headers.indexOf("usage")] || "",
       verifyStatus: user[headers.indexOf("verifyStatus")],
       darkMode: user[headers.indexOf("darkMode")],
       twoFactorAuth: user[headers.indexOf("twoFactorAuth")],
@@ -2913,7 +2943,8 @@ function updateAppData(params) {
       verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
       balance: user[headers.indexOf("balance")] || "0.00",
       plan: user[headers.indexOf("plan")] || "FREE",
-      planExpiry: user[headers.indexOf("planExpiry")] || ""
+      planExpiry: user[headers.indexOf("planExpiry")] || "",
+      usage: user[headers.indexOf("usage")] || ""
     };
 
     Logger.log(`[updateAppData] completed in ${Date.now() - startTime}ms`);
@@ -2975,7 +3006,8 @@ function getAppDataLite(params) {
       verificationIntervalHours: parseInt(user[headers.indexOf("verificationIntervalHours")]) || 1,
       balance: user[headers.indexOf("balance")] || "0.00",
       plan: user[headers.indexOf("plan")] || "FREE",
-      planExpiry: user[headers.indexOf("planExpiry")] || ""
+      planExpiry: user[headers.indexOf("planExpiry")] || "",
+      usage: user[headers.indexOf("usage")] || ""
     };
 
     Logger.log(`[getAppDataLite] completed in ${Date.now() - startTime}ms`);
