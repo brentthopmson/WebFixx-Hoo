@@ -183,9 +183,21 @@ function createNewCampaign(params) {
   try {
     let { projectId, accountIds, strategyContext, status } = params;
 
-    // Normalize accountIds: form-urlencoded sends arrays as comma-separated strings
+    // Normalize accountIds: form-urlencoded may deliver either a comma-joined
+    // string ("a,b") or a JSON-stringified array ("[]" / '["a","b"]').
+    // Legacy comma-splitting of JSON produced corrupt ids like ["[]"].
     if (typeof accountIds === "string") {
-      accountIds = accountIds.split(",").map(function(id) { return id.trim(); }).filter(function(id) { return id.length > 0; });
+      var normalizedIds = [];
+      var trimmedIds = accountIds.trim();
+      if (trimmedIds.charAt(0) === "[") {
+        try { normalizedIds = JSON.parse(trimmedIds); } catch (e) { normalizedIds = []; }
+        if (!Array.isArray(normalizedIds)) normalizedIds = [];
+      } else {
+        normalizedIds = trimmedIds.split(",");
+      }
+      accountIds = normalizedIds
+        .map(function(id) { return String(id === null || id === undefined ? "" : id).trim(); })
+        .filter(function(id) { return id.length > 0 && id.charAt(0) !== "[" && id.charAt(0) !== '"' && id.charAt(0) !== "{"; });
     } else if (!Array.isArray(accountIds)) {
       accountIds = [];
     }
@@ -249,6 +261,11 @@ function createNewCampaign(params) {
       smtpSettings: parsedStrategy.smtpSettings || [],
       deliveryMethod: parsedStrategy.deliveryMethod || "smtp",
       platform: parsedStrategy.platform || "",
+      // Owner for engine-side user quota checks (execute-campaign reads settings.userId)
+      userId: params.userId || "",
+      // Engagement (write actions) vs read-only tasks — derived client-side
+      // from socialInteractionTypes.
+      engagementMode: parsedStrategy.engagementMode === true,
       
       // Staged prep parameters
       validationStaged: parsedStrategy.validationStaged || false,
@@ -258,6 +275,7 @@ function createNewCampaign(params) {
       aiPersonalizationStaged: parsedStrategy.aiPersonalizationStaged || false,
       aiPersonalizationPrompt: parsedStrategy.aiPersonalizationPrompt || "",
       personalizationStatus: parsedStrategy.personalizationStatus || "idle",
+      executeStaged: parsedStrategy.executeStaged ?? true,
       
       // Link tracking parameters
       linkType: parsedStrategy.linkType || "project",
@@ -570,7 +588,45 @@ function updateCampaign(params) {
     const updates = {
       updatedOn: new Date().toISOString()
     };
-    if (settings) updates.settings = settings;
+    if (settings) {
+      // Merge the incoming strategy context INTO the existing settings cell so
+      // fields the context does not carry (accounts, platform, projectId,
+      // engagementMode, userId, …) survive edits instead of being wiped.
+      var mergedSettingsStr = settings;
+      try {
+        var incoming = typeof settings === "string" ? JSON.parse(settings) : settings;
+        if (incoming && typeof incoming === "object" && !Array.isArray(incoming)) {
+          var existingSettings = {};
+          var existingResult = getRowsByColumn("campaigns", "campaignId", campaignId);
+          if (existingResult.success && existingResult.count > 0) {
+            var exHeaders = existingResult.headers;
+            var exSettingsRaw = existingResult.data[0][exHeaders.indexOf("settings")];
+            try {
+              existingSettings = typeof exSettingsRaw === "string" ? JSON.parse(exSettingsRaw) : (exSettingsRaw || {});
+            } catch (exErr) {
+              existingSettings = {};
+            }
+            if (typeof existingSettings !== "object" || existingSettings === null || Array.isArray(existingSettings)) {
+              existingSettings = {};
+            }
+          }
+          var mergedSettings = {};
+          var mergeKey;
+          for (mergeKey in existingSettings) {
+            if (Object.prototype.hasOwnProperty.call(existingSettings, mergeKey)) mergedSettings[mergeKey] = existingSettings[mergeKey];
+          }
+          for (mergeKey in incoming) {
+            if (!Object.prototype.hasOwnProperty.call(incoming, mergeKey)) continue;
+            if (incoming[mergeKey] === undefined) continue;
+            mergedSettings[mergeKey] = incoming[mergeKey];
+          }
+          mergedSettingsStr = JSON.stringify(mergedSettings);
+        }
+      } catch (mergeErr) {
+        Logger.log("updateCampaign settings merge failed, replacing wholesale: " + mergeErr.message);
+      }
+      updates.settings = mergedSettingsStr;
+    }
     if (status) updates.status = status;
 
     const result = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);

@@ -1597,12 +1597,14 @@ function saveSearchParams(params) {
 function verifySession(params) {
   try {
     Logger.log("Starting verifySession with params:", params);
-    const { userId, browserId, category } = params;
+    const { userId, browserId, category, platform } = params;
 
-    if (!userId || !browserId || !category) {
+    // userId is optional: engine-side quota fails open without it (dashboard
+    // callers may not carry one; the token still authenticates the request).
+    if (!browserId || !category) {
       return {
         success: false,
-        error: "Missing required fields: userId, browserId, and category are required"
+        error: "Missing required fields: browserId and category are required"
       };
     }
 
@@ -1650,7 +1652,8 @@ function verifySession(params) {
           browserId: browserId,
           cookieJSON: cookieJSON,
           category: category.toUpperCase(),
-          userId: userId
+          userId: userId || "",
+          platform: platform || cookieRow.platform || ""
         }),
         muteHttpExceptions: true
       });
@@ -1821,7 +1824,8 @@ function autoVerifyStaleSessions() {
                 browserId: browserId,
                 cookieJSON: cookieRow.cookieJSON,
                 category: category.toUpperCase(),
-                userId: userId
+                userId: userId,
+                platform: cookieRow.platform || ""
               }),
               muteHttpExceptions: true
             });
