@@ -626,6 +626,11 @@ function updateCampaign(params) {
         Logger.log("updateCampaign settings merge failed, replacing wholesale: " + mergeErr.message);
       }
       updates.settings = mergedSettingsStr;
+      // Keep the dedicated `type` column truthful — the UI reads it for the
+      // Niche Category chip (frontend also falls back to settings.type).
+      if (typeof incoming !== "undefined" && incoming && typeof incoming === "object" && incoming.type) {
+        updates.type = String(incoming.type);
+      }
     }
     if (status) updates.status = status;
 
