@@ -37,6 +37,149 @@ function channelToServerType(channel) {
 }
 
 /**
+ * Group campaign accounts by the engine instance that owns each session.
+ * accountId → hub row → browserId → cookie-row `server` column. Servers that
+ * are not ACTIVE in the links sheet (or unmatched) go to the fallback bucket.
+ * @param {string[]} accountIds - hub submissionIds
+ * @returns {{ groups: Object, fallbackIds: string[] }}
+ *   groups: { [serverBaseUrl]: { serverUrl, accountIds } } — active servers only
+ *   fallbackIds: accounts with no/inactive server → resolveEngineUrl fleet
+ */
+function resolveServerGroupsForAccounts(accountIds) {
+  const groups = {};
+  const fallbackIds = [];
+  if (!accountIds || accountIds.length === 0) return { groups: groups, fallbackIds: fallbackIds };
+
+  // Links sheet lookup for the active check (one read, cached by getCachedRows)
+  let linksByUrl = {};
+  try {
+    const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
+    if (linksResult.success && linksResult.data) {
+      const h = linksResult.headers;
+      const urlIdx = h.indexOf('severlessURL');
+      const statusIdx = h.indexOf('severlessStatus');
+      const healthIdx = h.indexOf('severlessHealth');
+      if (urlIdx !== -1) {
+        linksResult.data.forEach(function (row) {
+          const url = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
+          if (!url) return;
+          const status = statusIdx !== -1 ? String(row[statusIdx] || '').trim().toUpperCase() : 'ACTIVE';
+          const health = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : 'OK';
+          linksByUrl[url] = { active: (status === 'ACTIVE' && health !== 'DOWN'), status: status, health: health };
+        });
+      }
+    }
+  } catch (linkErr) {
+    Logger.log("resolveServerGroupsForAccounts: links sheet read failed (non-fatal): " + linkErr.message);
+  }
+
+  accountIds.forEach(function (id) {
+    let serverUrl = null;
+    try {
+      const res = getRowsByColumn("hub", "submissionId", id);
+      if (res.success && res.count > 0) {
+        const browserId = res.data[0][res.headers.indexOf("browserId")];
+        if (browserId) serverUrl = getServerForBrowserId(browserId);
+      }
+    } catch (rowErr) {
+      Logger.log("resolveServerGroupsForAccounts: lookup failed for " + id + " (non-fatal): " + rowErr.message);
+    }
+
+    const linkInfo = serverUrl ? linksByUrl[serverUrl] : null;
+    if (serverUrl && (!linkInfo || linkInfo.active)) {
+      // Unmatched URL (not in links sheet) still trusted — server column was
+      // stamped by a live instance. Matched but inactive → fallback fleet.
+      if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
+      groups[serverUrl].accountIds.push(id);
+    } else {
+      fallbackIds.push(id);
+    }
+  });
+
+  Logger.log("resolveServerGroupsForAccounts: " + accountIds.length + " account(s) → " +
+    Object.keys(groups).length + " active server(s), " + fallbackIds.length + " fallback");
+  return { groups: groups, fallbackIds: fallbackIds };
+}
+
+/**
+ * Fire-and-forget dispatch to a specific engine instance (GAS 6-min limit —
+ * campaign runs are long; we only need the engine to pick the job up).
+ * @param {string} url - Full engine URL
+ * @param {Object} payload - Request body
+ * @param {string} label - Log label
+ */
+function fireEngineTrigger(url, payload, label) {
+  try {
+    UrlFetchApp.fetch(url, {
+      method: 'POST',
+      contentType: 'application/json',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+      timeout: 30000
+    });
+    Logger.log("[fireEngineTrigger] " + label + " → " + url + " dispatched");
+  } catch (e) {
+    Logger.log("[fireEngineTrigger] " + label + " → " + url + " failed (non-fatal): " + e.message);
+  }
+}
+
+/**
+ * Fan a campaign job out to each owning server (scoped to that server's
+ * accounts), plus one fallback call for untagged/inactive-server accounts.
+ * @param {string} path - Engine path, e.g. "/api/execute-campaign"
+ * @param {Object} basePayload - Shared payload (campaignId, settings, context, ...)
+ * @param {string[]} accountIds - Full account list from campaign settings
+ * @param {Object} resolveFallback - { platform, serverType } for resolveEngineUrl
+ * @returns {Object} { attempted: number, failed: number } — failed counts only
+ *   immediate dispatch errors on the fallback (async fan-out can't be awaited)
+ */
+function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallback) {
+  const result = { attempted: 0, failed: 0 };
+  const grouping = resolveServerGroupsForAccounts(accountIds || []);
+
+  Object.keys(grouping.groups).forEach(function (serverUrl) {
+    const group = grouping.groups[serverUrl];
+    const scopedPayload = Object.assign({}, basePayload, {
+      accountIds: group.accountIds,
+      serverScope: serverUrl
+    });
+    result.attempted++;
+    fireEngineTrigger(serverUrl + path, scopedPayload,
+      path + " server=" + serverUrl + " accounts=" + group.accountIds.length);
+  });
+
+  if (grouping.fallbackIds.length > 0 || Object.keys(grouping.groups).length === 0) {
+    // No accounts at all → full-list fallback (legacy single-call behavior)
+    const fallbackPayload = (accountIds && accountIds.length > 0 && grouping.fallbackIds.length > 0)
+      ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: 'fallback' })
+      : basePayload;
+    try {
+      const url = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || '', (resolveFallback && resolveFallback.serverType) || '');
+      const response = UrlFetchApp.fetch(url, {
+        method: 'POST',
+        contentType: 'application/json',
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+        payload: JSON.stringify(fallbackPayload),
+        muteHttpExceptions: true,
+        timeout: 60000
+      });
+      result.attempted++;
+      const code = response.getResponseCode();
+      if (code < 200 || code >= 300) {
+        result.failed++;
+        Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path);
+      }
+    } catch (e) {
+      result.failed++;
+      Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + e.message);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Fetch the engine with JSON parse guard and ngrok skip header.
  * @param {string} url - Full URL to call
  * @param {Object} payload - Request body
@@ -368,22 +511,26 @@ function createNewCampaign(params) {
       timestamp: new Date().toISOString()
     };
 
-    // 3. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settingsData.platform, channelToServerType(settingsData.channel)), payload);
-    var result = fetchResult.body;
+    // 3. Dispatch to owning servers (fan-out per account's session instance);
+    //    fallback fleet only for accounts with no/inactive server.
+    var dispatch = dispatchCampaignToServers("/api/execute-campaign", payload, accountIds, {
+      platform: settingsData.platform,
+      serverType: channelToServerType(settingsData.channel)
+    });
 
-    if (!result.success) {
+    if (dispatch.attempted === 0 || dispatch.failed === dispatch.attempted) {
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
         status: "draft",
         updatedOn: new Date().toISOString()
       });
+      return { success: false, error: "All engine dispatches failed for execution" };
     }
 
     return {
-      success: result.success || false,
-      message: result.message || "Campaign initiation result",
-      executionId: result.executionId || null,
-      details: result,
+      success: true,
+      message: "Campaign execution dispatched to " + dispatch.attempted + " engine instance(s)",
+      executionId: null,
+      details: { dispatched: dispatch.attempted, failed: dispatch.failed },
       campaignId: campaignId
     };
 
@@ -488,27 +635,30 @@ function executeCampaign(params) {
       timestamp: new Date().toISOString()
     };
 
-    // 4. Call the external headless engine
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/execute-campaign", settings.platform, channelToServerType(settings.channel)), payload);
-    var apiResult = fetchResult.body;
+    // 4. Dispatch to owning servers (fan-out per account's session instance);
+    //    fallback fleet only for accounts with no/inactive server.
+    var dispatch = dispatchCampaignToServers("/api/execute-campaign", payload, accountIds, {
+      platform: settings.platform,
+      serverType: channelToServerType(settings.channel)
+    });
 
-    if (apiResult.success || fetchResult.responseCode === 200) {
+    if (dispatch.attempted > 0 && dispatch.failed < dispatch.attempted) {
       // Update status to 'running'
       const updates = {
         status: "running",
         updatedOn: new Date().toISOString()
       };
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
-      
+
       return {
         success: true,
-        message: "Campaign executed and started running successfully",
-        data: apiResult
+        message: "Campaign dispatched to " + dispatch.attempted + " engine instance(s)",
+        data: { dispatched: dispatch.attempted, failed: dispatch.failed }
       };
     } else {
       return {
         success: false,
-        error: apiResult.error || "Failed to execute campaign via serverless API"
+        error: "Failed to execute campaign via serverless API (all dispatches failed)"
       };
     }
 
@@ -535,27 +685,24 @@ function runCampaignPipeline(params) {
     // The pipeline (especially validation with browser verification) can take 5+ minutes.
     // Apps Script web apps have a 6-minute limit, so we must not block.
     var pipelinePlatform = '';
+    var pipelineAccountIds = [];
     try {
       var campaignResult = getRowsByColumn("campaigns", "campaignId", campaignId);
       if (campaignResult.success && campaignResult.count > 0) {
         var pipelineSettingsRaw = campaignResult.data[0][campaignResult.headers.indexOf("settings")];
         var pipelineSettings = typeof pipelineSettingsRaw === "string" ? JSON.parse(pipelineSettingsRaw) : (pipelineSettingsRaw || {});
         pipelinePlatform = pipelineSettings.platform || '';
+        pipelineAccountIds = pipelineSettings.accounts || [];
       }
     } catch (platformError) {
       Logger.log("[runCampaignPipeline] Could not resolve campaign platform: " + platformError.message);
     }
-    var engineUrl = resolveEngineUrl("/api/pipeline-orchestrator", pipelinePlatform);
-    try {
-      UrlFetchApp.fetch(engineUrl, {
-        method: "POST",
-        contentType: "application/json",
-        payload: JSON.stringify({ campaignId }),
-        muteHttpExceptions: true,
-      });
-    } catch (e) {
-      Logger.log("[runCampaignPipeline] Engine trigger failed (non-fatal): " + e.message);
-    }
+    // Fan-out: one orchestrator trigger per owning server (scoped accountIds),
+    // fallback fleet only for accounts with no/inactive server.
+    dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
+      platform: pipelinePlatform,
+      serverType: ''
+    });
 
     // Mark campaign as running immediately so the UI refreshes quickly.
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {

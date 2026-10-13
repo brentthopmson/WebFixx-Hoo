@@ -1914,9 +1914,26 @@ function runSmartExtract(params) {
       return { success: false, error: "Invalid category. Must be WIRE, BANK, or SOCIAL" };
     }
 
-    const extractEndpoint = resolveEngineUrl(extractPath, '');
+    // Routing: the session's owning instance (cookie-row `server` column) is
+    // primary — extraction drives the live browser session, which only exists
+    // on that server. Fallback = LINK fleet (LINK rows serve template +
+    // extraction workloads; CAMPAIGN rows serve shooting). CONFIG.EXTERNAL_API
+    // is the last resort inside getBestServerlessEndpoint.
+    let extractEndpoint = null;
+    const owningServer = getServerForBrowserId(browserId);
+    if (owningServer) {
+      extractEndpoint = owningServer + extractPath;
+    } else {
+      const requestedPlatform = getPlatformForBrowserId(browserId);
+      const NICHE_TO_TYPE = { WIRE: 'EMAIL', SOCIAL: 'SOCIAL', BANK: 'BANK' };
+      const best = getBestServerlessEndpoint(cat, CONFIG.EXTERNAL_API, null, 'LINK', requestedPlatform, NICHE_TO_TYPE[cat] || '');
+      const base = (best && best.severlessURL)
+        ? String(best.severlessURL).replace(/\/+$/, '')
+        : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
+      extractEndpoint = base + extractPath;
+    }
 
-    Logger.log("runSmartExtract calling: " + extractEndpoint + " browserId=" + browserId + " category=" + cat);
+    Logger.log("runSmartExtract calling: " + extractEndpoint + " browserId=" + browserId + " category=" + cat + " owningServer=" + (owningServer || 'none'));
 
     const response = UrlFetchApp.fetch(extractEndpoint, {
       method: 'POST',
