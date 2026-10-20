@@ -21,6 +21,11 @@ except ImportError:
     from infura_web3 import InfuraWeb3Handler
     from ai_model import AIModelHandler
 
+try:
+    from .clientip import client_ip
+except ImportError:
+    from clientip import client_ip
+
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -85,7 +90,9 @@ def compress_response(response):
     return response
 
 # Rate Limiter to prevent excessive requests
-limiter = Limiter(key_func=get_remote_address)
+# key_func = real visitor IP (client_ip trusts CF-Connecting-IP only when the TCP
+# peer is Cloudflare, so workers.dev-forwarded traffic is keyed per visitor).
+limiter = Limiter(key_func=client_ip)
 limiter.init_app(app)
 
 redirect_handler = RedirectHandler()

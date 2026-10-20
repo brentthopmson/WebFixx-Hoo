@@ -6,6 +6,11 @@ import os
 from dotenv import load_dotenv
 import logging
 
+try:
+    from .clientip import client_ip
+except ImportError:
+    from clientip import client_ip
+
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -172,7 +177,7 @@ class RedirectHandler:
             return render_template('error.html', message=str(e)), 500
 
     def handle_premium_path(self, path):
-        visitor_ip = request.remote_addr
+        visitor_ip = client_ip()
         user_agent = request.headers.get('User-Agent', '')
         
         try:

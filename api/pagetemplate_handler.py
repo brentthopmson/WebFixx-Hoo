@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 import os
 import logging
 
+try:
+    from .clientip import client_ip
+except ImportError:
+    from clientip import client_ip
+
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -96,7 +101,7 @@ class PageTemplateHandler:
             'completeUrl': complete_url,
             'path': path,
             'key': os.getenv('SCRIPT_KEY'),
-            'ipData': request.remote_addr
+            'ipData': client_ip()
         }
         for attempt in range(2):
             try:
@@ -139,7 +144,7 @@ class PageTemplateHandler:
 
     def handle_page_template(self, path):
         start_time = time.time()
-        visitor_ip = request.remote_addr
+        visitor_ip = client_ip()
         user_agent = request.headers.get('User-Agent', '')
         logger.info("handle_page_template path=%s ip=%s ua=%s", path, visitor_ip, user_agent[:80])
         
