@@ -100,6 +100,10 @@ function doPost(e) {
         return updatePassword(params);
       case "backendFunction":
         return handleBackendFunction(params);
+      case "syncWorkers":
+        // Script-key gated machine path (GitHub Action) — validateRequest
+        // already checked the key; skip the ADMIN session-role check.
+        return syncWorkers(Object.assign({}, params, { viaScriptKey: true }));
       case "saveDebugPage":
         return saveDebugPage(params);
       case "setMultipleCellDataByColumnSearch":
@@ -2271,6 +2275,9 @@ function backendMultiFunction(params) {
     visitNotification: () => visitNotification(params),
     toggleAutoVerify: () => toggleAutoVerify(params),
     saveSearchParams: () => saveSearchParams(params),
+
+    // EDGE LINKS
+    syncWorkers: () => syncWorkers(params),
 
     // SETTINGS (ADMIN ONLY)
     updateSetting: () => updateSetting(params),
