@@ -1909,9 +1909,9 @@ function runSmartExtract(params) {
 
     const cat = String(category).toUpperCase();
     const nicheToPath = {
-      WIRE: '/emails/email-extract',
-      BANK: '/banks/bank-extract',
-      SOCIAL: '/socials/social-extract'
+      WIRE: '/extraction',
+      BANK: '/extraction',
+      SOCIAL: '/extraction'
     };
     const extractPath = nicheToPath[cat];
     if (!extractPath) {
@@ -1945,7 +1945,8 @@ function runSmartExtract(params) {
       headers: { 'ngrok-skip-browser-warning': 'true' },
       payload: JSON.stringify({
         browserId: browserId,
-        category: cat
+        category: cat,
+        channel: cat.toLowerCase()
       }),
       muteHttpExceptions: true
     });
@@ -3372,9 +3373,10 @@ function shootEmails(params) {
 
     Logger.log("[shootEmails] Request: browserId=" + browserId + ", contacts=" + (contacts.length || "?") + ", sendMode=" + (sendMode || "now") + ", scheduleStartTime=" + (scheduleStartTime || "N/A") + ", userId=" + (userId || "none"));
 
-    const engineUrl = resolveEngineUrl("emails/send-email", '', 'EMAIL');
+    const engineUrl = resolveEngineUrl("/shooting", '', 'EMAIL');
     const payload = JSON.stringify({
       browserId,
+      channel: "email",
       userId: userId || null,
       contacts: typeof contacts === "string" ? JSON.parse(contacts) : contacts,
       subject,
