@@ -354,6 +354,17 @@ function createNewCampaign(params) {
       parsedStrategy = { body: strategyContext };
     }
 
+    // Gate maximum accounts per campaign (from SETTINGS sheet maxAccountsPerCampaign, default 5)
+    var maxAccountsSetting = getSettingValue("maxAccountsPerCampaign");
+    var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 5;
+    if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 5;
+    if (accountIds && accountIds.length > maxAllowedAccounts) {
+      return {
+        success: false,
+        error: "Cannot add more than " + maxAllowedAccounts + " accounts to a campaign. You selected " + accountIds.length + "."
+      };
+    }
+
     // Feature gate: campaign creation
     const gateCampaign = requireSetting("allowCampaignCreation", "campaign creation");
     if (gateCampaign) return gateCampaign;
@@ -767,6 +778,17 @@ function updateCampaign(params) {
             if (incoming[mergeKey] === undefined) continue;
             mergedSettings[mergeKey] = incoming[mergeKey];
           }
+          if (mergedSettings.accounts && Array.isArray(mergedSettings.accounts)) {
+            var maxAccountsSetting = getSettingValue("maxAccountsPerCampaign");
+            var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 5;
+            if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 5;
+            if (mergedSettings.accounts.length > maxAllowedAccounts) {
+              return {
+                success: false,
+                error: "Cannot add more than " + maxAllowedAccounts + " accounts to a campaign. You selected " + mergedSettings.accounts.length + "."
+              };
+            }
+          }
           mergedSettingsStr = JSON.stringify(mergedSettings);
         }
       } catch (mergeErr) {
@@ -877,8 +899,8 @@ function resumeCampaign(params) {
     const currentStatus = row[headers.indexOf("status")];
     const normalized = currentStatus ? String(currentStatus).trim().toLowerCase() : "";
 
-    if (normalized !== "paused") {
-      return { success: false, error: "Only paused campaigns can be resumed (current status: " + (currentStatus || "unknown") + ")." };
+    if (normalized !== "paused" && normalized !== "resting" && normalized !== "limit reached") {
+      return { success: false, error: "Only paused or resting campaigns can be resumed (current status: " + (currentStatus || "unknown") + ")." };
     }
 
     const updates = {
