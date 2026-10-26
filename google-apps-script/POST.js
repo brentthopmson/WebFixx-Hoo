@@ -2366,16 +2366,35 @@ function getSessionData(params) {
       }
     }
 
+        var domainVal = getCol('domain') || '';
+    var platformUrls = [];
+    if (domainVal) {
+      if (domainVal.indexOf('google') !== -1 || domainVal.indexOf('gmail') !== -1) {
+        platformUrls = [
+          'https://mail.google.com/mail/u/0/#inbox',
+          'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app',
+          'https://drive.google.com/drive/u/0/home'
+        ];
+      } else if (domainVal.indexOf('outlook') !== -1 || domainVal.indexOf('hotmail') !== -1 || domainVal.indexOf('live') !== -1) {
+        platformUrls = ['https://outlook.live.com/mail/'];
+      } else if (domainVal.indexOf('yahoo') !== -1) {
+        platformUrls = ['https://mail.yahoo.com/'];
+      }
+    }
+
     return {
       success: true,
       data: {
         downloadUrl: downloadUrl,
         driveUrl: driveUrl,
-        domain: getCol('domain'),
+        domain: domainVal,
         email: getCol('email'),
         category: getCol('category'),
         platformUrl: getCol('platformUrl'),
-        cookieJSON: getCol('cookieJSON') || getCol('cookie') || getCol('formattedCookie') || null
+        platformUrls: platformUrls,
+        cookieJSON: getCol('cookieJSON') || getCol('cookie') || getCol('formattedCookie') || null,
+        accountCookieJSON: getCol('accountCookieJSON') || null,
+        driveCookieJSON: getCol('driveCookieJSON') || null
       }
     };
   } catch (error) {
