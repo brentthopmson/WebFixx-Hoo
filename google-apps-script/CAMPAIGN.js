@@ -356,12 +356,12 @@ function createNewCampaign(params) {
 
     // Gate maximum accounts per campaign (from SETTINGS sheet maxAccountsPerCampaign, default 5)
     var maxAccountsSetting = getSettingValue("maxAccountsPerCampaign");
-    var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 5;
-    if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 5;
+    var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 1;
+    if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 1;
     if (accountIds && accountIds.length > maxAllowedAccounts) {
       return {
         success: false,
-        error: "Cannot add more than " + maxAllowedAccounts + " accounts to a campaign. You selected " + accountIds.length + "."
+        error: "Cannot add more than " + maxAllowedAccounts + " account(s) to a campaign. You selected " + accountIds.length + "."
       };
     }
 
@@ -780,8 +780,8 @@ function updateCampaign(params) {
           }
           if (mergedSettings.accounts && Array.isArray(mergedSettings.accounts)) {
             var maxAccountsSetting = getSettingValue("maxAccountsPerCampaign");
-            var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 5;
-            if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 5;
+            var maxAllowedAccounts = maxAccountsSetting ? parseInt(maxAccountsSetting, 10) : 1;
+    if (isNaN(maxAllowedAccounts) || maxAllowedAccounts <= 0) maxAllowedAccounts = 1;
             if (mergedSettings.accounts.length > maxAllowedAccounts) {
               return {
                 success: false,
