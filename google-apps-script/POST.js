@@ -2390,7 +2390,7 @@ function resolveSmartPlatformUrlsGAS(domain, platform, email) {
     return [
       'https://mail.google.com/mail/u/0/#inbox',
       'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app',
-      'https://drive.google.com/drive/u/0/home'
+      'https://drive.google.com/drive/u/0/my-drive'
     ];
   }
 
