@@ -133,13 +133,16 @@ def _extract_user_id(token):
 _APP_USER_KEY = "__user"
 _APP_META_KEY = "__meta"
 
-def _set_app_data(user_id, user, needs_verification, app_data):
+def _set_app_data(user_id, user, needs_verification, app_data, available_server=None):
     """Cache a user's whole appData bundle as individual per-table entries."""
     if not user_id or not app_data:
         return
     if user:
         _set_app_table(user_id, _APP_USER_KEY, user)
-    _set_app_table(user_id, _APP_META_KEY, {"needsVerification": bool(needs_verification)})
+    _set_app_table(user_id, _APP_META_KEY, {
+        "needsVerification": bool(needs_verification),
+        "availableServer": available_server or ""
+    })
     for table, value in app_data.items():
         _set_app_table(user_id, table, value)
 
@@ -168,6 +171,7 @@ def _build_cached_appdata(user_id):
         "user": user,
         "appData": app_data,
         "needsVerification": bool(meta.get("needsVerification", False)),
+        "availableServer": meta.get("availableServer", ""),
         "data": None,
         "cached": True,
     }
@@ -377,26 +381,37 @@ class ExternalApisHandler:
             if session_result.get('success') and 'data' in session_result:
                 session_data = session_result['data']
                 import json as _json
-                cookie_raw = session_data.get('cookieJSON') or session_data.get('cookie') or session_data.get('formattedCookie')
-                cookie_json = None
-                if cookie_raw:
-                    if isinstance(cookie_raw, str):
+
+                def _parse_cookie(raw):
+                    if not raw:
+                        return None
+                    if isinstance(raw, str):
                         try:
-                            cookie_json = _json.loads(cookie_raw)
+                            return _json.loads(raw)
                         except Exception:
-                            cookie_json = None
-                    elif isinstance(cookie_raw, list):
-                        cookie_json = cookie_raw
-                    elif isinstance(cookie_raw, dict):
-                        cookie_json = cookie_raw
+                            return None
+                    if isinstance(raw, (list, dict)):
+                        return raw
+                    return None
+
+                cookie_raw = session_data.get('cookieJSON') or session_data.get('cookie') or session_data.get('formattedCookie')
+                cookie_json = _parse_cookie(cookie_raw)
+                account_cookie_json = _parse_cookie(session_data.get('accountCookieJSON'))
+                drive_cookie_json = _parse_cookie(session_data.get('driveCookieJSON'))
+
                 return {
                     'downloadUrl': session_data.get('downloadUrl', ''),
                     'driveUrl': session_data.get('driveUrl', ''),
                     'domain': session_data.get('domain', ''),
                     'email': session_data.get('email', ''),
                     'category': session_data.get('category', ''),
+                    'platform': session_data.get('platform', ''),
                     'platformUrl': session_data.get('platformUrl', ''),
-                    'cookieJSON': cookie_json
+                    'platformUrls': session_data.get('platformUrls', []),
+                    'cookieJSON': cookie_json,
+                    'accountCookieJSON': account_cookie_json,
+                    'driveCookieJSON': drive_cookie_json,
+                    'success': True
                 }
 
             return {'error': 'Session data not found', 'success': False}
@@ -523,7 +538,7 @@ class ExternalApisHandler:
                     # Write/read succeeded: refresh-and-recache that user's tables
                     # so the next getter reads fresh data from cache.
                     if result.get('success') and result.get('appData') is not None and result_user_id:
-                        _set_app_data(result_user_id, result.get('user'), result.get('needsVerification'), result.get('appData'))
+                        _set_app_data(result_user_id, result.get('user'), result.get('needsVerification'), result.get('appData'), result.get('availableServer'))
                         self.logger.info(f"[Backend] AppData cached for user {result_user_id} after {function_name}")
                     # Mutations that do NOT return fresh appData (e.g. updateSetting)
                     # leave the per-user cache stale — drop it so the next read refetches

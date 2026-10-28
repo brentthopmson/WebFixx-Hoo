@@ -1,3 +1,33 @@
+
+/**
+ * Resolves the first active and healthy serverless server from the links sheet,
+ * falling back to CONFIG.EXTERNAL_API.
+ */
+function getAnyAvailableServer() {
+  try {
+    const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
+    if (linksResult && linksResult.success && linksResult.data && linksResult.data.length > 0) {
+      const headers = linksResult.headers;
+      const urlIdx = headers.indexOf('severlessURL');
+      const statusIdx = headers.indexOf('severlessStatus');
+      const healthIdx = headers.indexOf('severlessHealth');
+      
+      for (let i = 0; i < linksResult.data.length; i++) {
+        const row = linksResult.data[i];
+        const url = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
+        const status = String(row[statusIdx] || '').toUpperCase();
+        const health = String(row[healthIdx] || '').toUpperCase();
+        if (url && (status === 'ACTIVE' || !status) && health !== 'FAILED') {
+          return url;
+        }
+      }
+    }
+  } catch (e) {
+    Logger.log("getAnyAvailableServer error: " + e.message);
+  }
+  return String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
+}
+
 ﻿// Main endpoint handler
 const SCRIPT_KEY = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234';
 
@@ -3048,6 +3078,7 @@ function updateAppData(params) {
       success: true,
       user: userResponse,
       data: userData,
+      availableServer: getAnyAvailableServer(),
       needsVerification: userResponse.verifyStatus === "FALSE" || !userResponse.verifyStatus
     };
 
@@ -3111,6 +3142,7 @@ function getAppDataLite(params) {
       success: true,
       user: userResponse,
       data: userData,
+      availableServer: getAnyAvailableServer(),
       needsVerification: userResponse.verifyStatus === "FALSE" || !userResponse.verifyStatus
     };
 
