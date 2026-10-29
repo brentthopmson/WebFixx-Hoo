@@ -452,7 +452,16 @@ function createNewCampaign(params) {
       interactionMaxReplies: parsedStrategy.interactionMaxReplies || 100,
       
       // DM to all CSV profiles flag
-      shouldSendMessage: parsedStrategy.shouldSendMessage || false
+      shouldSendMessage: parsedStrategy.shouldSendMessage || false,
+
+      // Campaign duration (days) — bounded during creation by SETTINGS.campaignMaxDurationDays
+      durationDays: (function() {
+        var maxSetting = parseInt(getSettingValue("campaignMaxDurationDays"), 10);
+        var maxDays = (!isNaN(maxSetting) && maxSetting > 0) ? maxSetting : 365;
+        var requested = parseInt(parsedStrategy.durationDays, 10);
+        if (isNaN(requested) || requested <= 0) requested = 7; // default 7 days per voice directive
+        return Math.max(1, Math.min(requested, maxDays));
+      })()
     };
 
     const campaignData = {
@@ -777,6 +786,14 @@ function updateCampaign(params) {
             if (!Object.prototype.hasOwnProperty.call(incoming, mergeKey)) continue;
             if (incoming[mergeKey] === undefined) continue;
             mergedSettings[mergeKey] = incoming[mergeKey];
+          }
+          if (incoming && incoming.durationDays !== undefined) {
+            var maxDurSetting = parseInt(getSettingValue("campaignMaxDurationDays"), 10);
+            var maxDurDays = (!isNaN(maxDurSetting) && maxDurSetting > 0) ? maxDurSetting : 365;
+            var reqDurDays = parseInt(incoming.durationDays, 10);
+            if (!isNaN(reqDurDays) && reqDurDays > 0) {
+              mergedSettings.durationDays = Math.min(reqDurDays, maxDurDays);
+            }
           }
           if (mergedSettings.accounts && Array.isArray(mergedSettings.accounts)) {
             var maxAccountsSetting = getSettingValue("maxAccountsPerCampaign");
