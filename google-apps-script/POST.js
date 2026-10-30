@@ -3312,6 +3312,13 @@ function handleSetMultipleCellData(params) {
       return createJsonResponse({ success: false, error: "Missing required params: sheetName, searchColumn, searchValue, data" });
     }
     const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    try {
+      if (parsedData && typeof parsedData === 'object') {
+        ensureColumns_(sheetName, Object.keys(parsedData));
+      }
+    } catch (colErr) {
+      Logger.log("[handleSetMultipleCellData] ensureColumns notice: " + colErr.message);
+    }
     const result = setMultipleCellDataByColumnSearch(sheetName, searchColumn, searchValue, parsedData);
     return createJsonResponse(result);
   } catch (error) {
