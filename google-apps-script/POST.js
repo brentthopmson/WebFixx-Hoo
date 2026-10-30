@@ -142,6 +142,8 @@ function doPost(e) {
         return handleSaveResponseToDrive(e);
       case "saveExtractToDrive":
         return handleSaveExtractToDrive(params);
+      case "repairUserFormulaColumns":
+        return repairUserFormulaColumns(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -809,18 +811,19 @@ function handleLogin(params) {
     }
     const userFolderId = userFolderResult.folderId;
 
-    // Ensure user has a launcherKey in Col AP; auto-generate and populate if empty
+    // Ensure user has a launcherKey in Col AP; auto-generate and populate ONLY if empty
     const launcherKeyIndex = headers.indexOf("launcherKey");
     let launcherKey = launcherKeyIndex !== -1 ? String(user[launcherKeyIndex] || "").trim() : "";
     if (!launcherKey) {
       launcherKey = "LK-" + Utilities.getUuid().replace(/-/g, "").substring(0, 16).toUpperCase();
+      // Write ONLY launcherKey column — never touch any other column
+      setMultipleCellDataByColumnSearch("user", "userId", userId, { launcherKey: launcherKey });
     }
 
-    // Store current ipData, deviceInfo and launcherKey
+    // Store current ipData and deviceInfo
     const updateFields = {
       ipData: JSON.stringify(ipData || {}),
       deviceInfo: JSON.stringify(deviceInfo || {}),
-      launcherKey: launcherKey,
     };
 
     // 2FA Logic
@@ -3765,5 +3768,29 @@ function searchEmailHistory(params) {
   } catch (error) {
     Logger.log("[searchEmailHistory] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Clears literal/static values in formula columns below row 2 in the user sheet,
+ * allowing ArrayFormulas in row 2 to expand down freely without #REF! errors.
+ */
+function repairUserFormulaColumns(params) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName("user");
+    if (!ws) return createJsonResponse({ success: false, error: "user sheet not found" });
+    const headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
+    const formulaCols = ["totalCredit", "totalDebit", "pendingBalance", "balance"];
+    const colIndices = formulaCols.map(col => headers.indexOf(col) + 1).filter(idx => idx > 0);
+    const lastRow = ws.getLastRow();
+    if (lastRow >= 3 && colIndices.length > 0) {
+      colIndices.forEach(col => {
+        ws.getRange(3, col, lastRow - 2, 1).clearContent();
+      });
+    }
+    return createJsonResponse({ success: true, message: "Cleared formula columns below row 2 successfully." });
+  } catch (err) {
+    return createJsonResponse({ success: false, error: err.message });
   }
 }
