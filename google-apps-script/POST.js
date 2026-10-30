@@ -2224,7 +2224,7 @@ function handleBackendFunction(params) {
       "createEmailLabel", "deleteEmailLabel", "searchEmailHistory",
       "pauseShoot", "resumeShoot", "stopShoot",
       "cleanupShootFlags", "cleanupOldShootFlags",
-      "saveSearchParams"
+      "saveSearchParams", "getSessionData"
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
