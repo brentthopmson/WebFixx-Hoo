@@ -567,6 +567,9 @@ function handleRegister(params) {
       return createJsonResponse({ success: false, error: "Cannot register with this email" });
     }
 
+    // Generate unique launcherKey for new user (Col AP)
+    const launcherKey = "LK-" + Utilities.getUuid().replace(/-/g, "").substring(0, 16).toUpperCase();
+
     // Create new user without userId first
     const newUser = {
       email: email,
@@ -585,6 +588,7 @@ function handleRegister(params) {
       deviceInfo: JSON.stringify(params.deviceInfo || {}), // Store deviceInfo
       twoFactorAuth: "FALSE", // Default 2FA to FALSE
       apiKey: "", // Default empty API key
+      launcherKey: launcherKey, // Col AP
       destroyAccount: "FALSE", // Default destroyAccount to FALSE
     };
 
@@ -697,6 +701,7 @@ function handleRegister(params) {
       ethAddress: allSheetData[userActualRowIndex0Based][allSheetHeaders.indexOf("ethAddress")] || "",
       usdtAddress: allSheetData[userActualRowIndex0Based][allSheetHeaders.indexOf("usdtAddress")] || "",
       darkMode: allSheetData[userActualRowIndex0Based][allSheetHeaders.indexOf("darkMode")] || "FALSE", // Ensure darkMode is included
+      launcherKey: launcherKey, // Include user launcherKey
       folderId: userFolderId // Include the user's folderId
     };
 
@@ -804,10 +809,18 @@ function handleLogin(params) {
     }
     const userFolderId = userFolderResult.folderId;
 
-    // Store current ipData and deviceInfo
+    // Ensure user has a launcherKey in Col AP; auto-generate and populate if empty
+    const launcherKeyIndex = headers.indexOf("launcherKey");
+    let launcherKey = launcherKeyIndex !== -1 ? String(user[launcherKeyIndex] || "").trim() : "";
+    if (!launcherKey) {
+      launcherKey = "LK-" + Utilities.getUuid().replace(/-/g, "").substring(0, 16).toUpperCase();
+    }
+
+    // Store current ipData, deviceInfo and launcherKey
     const updateFields = {
       ipData: JSON.stringify(ipData || {}),
       deviceInfo: JSON.stringify(deviceInfo || {}),
+      launcherKey: launcherKey,
     };
 
     // 2FA Logic
@@ -897,6 +910,7 @@ function handleLogin(params) {
       usdtAddress: user[headers.indexOf("usdtAddress")] || "",
       darkMode: user[headers.indexOf("darkMode")] || "FALSE",
       twoFactorAuth: user[twoFactorAuthIndex] || "FALSE", // Include 2FA status
+      launcherKey: launcherKey, // Include launcherKey
       folderId: userFolderId // Include the user's folderId
     };
 
@@ -1250,9 +1264,9 @@ function changePassword(params) {
   }
 }
 
-function generateApiKey(params) {
+function generateLauncherKey(params) {
   try {
-    Logger.log("Starting generateApiKey with params:", params);
+    Logger.log("Starting generateLauncherKey with params:", params);
     const { userId } = params;
 
     if (!userId) {
@@ -1272,32 +1286,34 @@ function generateApiKey(params) {
       };
     }
 
-    // Generate a new API key
-    const newApiKey = Utilities.getUuid().replace(/-/g, ''); // Generate a UUID and remove hyphens
+    // Generate a new unique launcherKey in standard LK- prefix format
+    const newLauncherKey = "LK-" + Utilities.getUuid().replace(/-/g, "").substring(0, 16).toUpperCase();
 
-    // Update user's API key
+    // Update user's launcherKey in column AP (and keep apiKey in sync for legacy compatibility)
     const updateResult = setMultipleCellDataByColumnSearch("user", "userId", userId, {
-      apiKey: newApiKey
+      launcherKey: newLauncherKey,
+      apiKey: newLauncherKey
     });
 
     if (!updateResult.success) {
       return {
         success: false,
-        error: "Failed to generate API Key.",
+        error: "Failed to generate Launcher Key.",
         details: updateResult
       };
     }
 
     return {
       success: true,
-      message: "New API Key generated successfully.",
+      message: "New Launcher Key generated successfully.",
       data: {
-        apiKey: newApiKey
+        launcherKey: newLauncherKey,
+        apiKey: newLauncherKey
       }
     };
 
   } catch (error) {
-    Logger.log("Error in generateApiKey:", error.message);
+    Logger.log("Error in generateLauncherKey:", error.message);
     return {
       success: false,
       error: "Server error: " + error.message,
@@ -1306,6 +1322,10 @@ function generateApiKey(params) {
       }
     };
   }
+}
+
+function generateApiKey(params) {
+  return generateLauncherKey(params);
 }
 
 function changePlan(params) {
@@ -2300,6 +2320,7 @@ function backendMultiFunction(params) {
     updateUserPreferences: () => updateUserPreferences(params),
     changePassword: () => changePassword(params),
     generateApiKey: () => generateApiKey(params),
+    generateLauncherKey: () => generateLauncherKey(params),
     destroyAccount: () => destroyAccount(params),
     changePlan: () => changePlan(params),
     toggleTwoFactorAuth: () => toggleTwoFactorAuth(params),
@@ -3055,6 +3076,13 @@ function updateAppData(params) {
     const user = rows[userRowIndex];
 
     // Format user response
+    const launcherKeyIndex = headers.indexOf("launcherKey");
+    let launcherKey = launcherKeyIndex !== -1 ? String(user[launcherKeyIndex] || "").trim() : "";
+    if (!launcherKey) {
+      launcherKey = "LK-" + Utilities.getUuid().replace(/-/g, "").substring(0, 16).toUpperCase();
+      setMultipleCellDataByColumnSearch("user", "userId", userId, { launcherKey: launcherKey });
+    }
+
     const userResponse = {
       id: userId,
       userId: userId,
@@ -3070,7 +3098,8 @@ function updateAppData(params) {
       balance: user[headers.indexOf("balance")] || "0.00",
       plan: user[headers.indexOf("plan")] || "FREE",
       planExpiry: user[headers.indexOf("planExpiry")] || "",
-      usage: user[headers.indexOf("usage")] || ""
+      usage: user[headers.indexOf("usage")] || "",
+      launcherKey: launcherKey
     };
 
     Logger.log(`[updateAppData] completed in ${Date.now() - startTime}ms`);
