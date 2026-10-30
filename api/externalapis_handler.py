@@ -351,21 +351,7 @@ class ExternalApisHandler:
             if not token or not browser_id:
                 return {'error': 'token and browserId are required', 'success': False}
 
-            # Step 1: Validate token via GAS
-            validate_payload = {
-                'action': 'backendFunction',
-                'key': os.getenv('SCRIPT_KEY'),
-                'token': token,
-                'functionName': 'validateUserToken'
-            }
-            validate_response = self._post_appscript(validate_payload)
-            validate_result = self._safe_json(validate_response)
-
-            if not validate_result.get('success'):
-                self.logger.warning(f"Token validation failed for electron session: {validate_result.get('error')}")
-                return {'error': 'Token validation failed', 'success': False}
-
-            # Step 2: Fetch session data from GAS
+            # Fetch session data from GAS (GAS handleBackendFunction verifies the token automatically)
             session_payload = {
                 'action': 'backendFunction',
                 'key': os.getenv('SCRIPT_KEY'),
