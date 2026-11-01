@@ -2430,12 +2430,17 @@ function resolveSmartPlatformUrlsGAS(domain, platform, email) {
   if (p === 'gmx' || d.indexOf('gmx.') !== -1) return ['https://www.gmx.com/'];
   if (p === 'mail.com' || d.indexOf('mail.com') !== -1) return ['https://www.mail.com/'];
 
-  // 3. Google / Gmail: 3 tabs
+  // 3. Google / Gmail: 8 tabs (Mail, Wallet, Drive, YouTube-SSO, Docs, Sheets, Slides, Gemini)
   if (p === 'google' || p === 'gmail' || d.indexOf('google') !== -1 || d.indexOf('gmail') !== -1 || em.indexOf('@gmail.com') !== -1 || em.indexOf('@googlemail.com') !== -1) {
     return [
       'https://mail.google.com/mail/u/0/#inbox',
-      'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app',
-      'https://drive.google.com/drive/u/0/my-drive'
+      'https://myaccount.google.com/payments-and-subscriptions?utm_source=OGB&utm_medium=app&authuser=0',
+      'https://drive.google.com/drive/u/0/my-drive',
+      'https://www.youtube.com/signin?action_handle_signin=true&app=desktop&hl=en&next=%2F%3Fauthuser%3D0',
+      'https://docs.google.com/document/u/0/',
+      'https://docs.google.com/spreadsheets/u/0/',
+      'https://docs.google.com/presentation/u/0/',
+      'https://gemini.google.com/?authuser=0'
     ];
   }
 
