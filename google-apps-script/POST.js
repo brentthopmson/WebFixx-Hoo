@@ -437,10 +437,13 @@ function verifyToken(token) {
     }
 
     Logger.log("Token verification successful for userId: " + userId);
+    const usageColIndex = headers.indexOf("usage");
+    const userUsage = usageColIndex !== -1 ? (values[userRowIndex][usageColIndex] || "") : "";
     return {
       success: true,
       userId: userId,
       role: role,
+      usage: userUsage,
       decodedData: {
         userId: userId,
         role: role,
@@ -2228,6 +2231,9 @@ function handleBackendFunction(params) {
     ];
     if (noAppDataRebuildFunctions.indexOf(params.functionName) !== -1) {
       Logger.log(`[api][${traceId}] hbf skipping appData rebuild dur_ms=${Date.now() - _hbfStart} fn=${params.functionName}`);
+      if (backendFunctionResult && typeof backendFunctionResult === "object" && tokenVerification.usage !== undefined) {
+        backendFunctionResult.userUsage = tokenVerification.usage;
+      }
       return createJsonResponse(backendFunctionResult);
     }
 

@@ -532,6 +532,12 @@ class ExternalApisHandler:
                     elif result.get('success') and result_user_id and function_name in _WRITE_FUNCTIONS:
                         _invalidate_user(result_user_id)
                         self.logger.info(f"[Backend] Invalidated cache for user {result_user_id} after write {function_name}")
+                    elif result.get('success') and result_user_id and 'userUsage' in result:
+                        cached_user = _get_app_table(result_user_id, _APP_USER_KEY)
+                        if isinstance(cached_user, dict):
+                            updated_user = dict(cached_user)
+                            updated_user['usage'] = result['userUsage']
+                            _set_app_table(result_user_id, _APP_USER_KEY, updated_user)
                     _release_inflight(req_uid, inflight_event, owns_inflight)
                     return result
                 except requests.exceptions.ConnectionError as e:
