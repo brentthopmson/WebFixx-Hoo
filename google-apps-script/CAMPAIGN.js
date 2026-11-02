@@ -330,13 +330,33 @@ function buildCampaignStatsAccounts(accountIds, defaultPlatform, existingStats) 
     var platform = defaultPlatform || "";
     try {
       var hubRes = getRowsByColumn("hub", "submissionId", aid);
+      // Social accounts are keyed by browserId in campaign settings/stats —
+      // retry the lookup so those rows resolve to a real identity too.
+      if (!(hubRes.success && hubRes.count > 0)) {
+        hubRes = getRowsByColumn("hub", "browserId", aid);
+      }
       if (hubRes.success && hubRes.count > 0) {
         var r = hubRes.data[0];
         var h = hubRes.headers;
         var emIdx = h.indexOf("email");
+        var unIdx = h.indexOf("username");
+        var soIdx = h.indexOf("socials");
         var plIdx = h.indexOf("platform");
         var tyIdx = h.indexOf("type");
-        if (emIdx !== -1 && r[emIdx]) identifier = String(r[emIdx]).trim();
+        // Prefer the social profile handle (socials[0].username) — the
+        // self-identifying name — then email, then username.
+        try {
+          if (soIdx !== -1 && r[soIdx]) {
+            var socialsArr = typeof r[soIdx] === "string" ? JSON.parse(r[soIdx]) : r[soIdx];
+            if (socialsArr && socialsArr[0] && socialsArr[0].username && String(socialsArr[0].username).trim()) {
+              identifier = String(socialsArr[0].username).trim();
+            }
+          }
+        } catch (eSocials) {}
+        if (identifier === aid) {
+          if (emIdx !== -1 && r[emIdx]) identifier = String(r[emIdx]).trim();
+          else if (unIdx !== -1 && r[unIdx]) identifier = String(r[unIdx]).trim();
+        }
         if (plIdx !== -1 && r[plIdx]) platform = String(r[plIdx]).trim().toLowerCase();
         else if (tyIdx !== -1 && r[tyIdx]) platform = String(r[tyIdx]).trim().toLowerCase();
       }
