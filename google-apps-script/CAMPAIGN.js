@@ -795,6 +795,94 @@ function executeCampaign(params) {
 }
 
 /**
+ * Owner of a campaigns-sheet row: the userId column first, then the
+ * settings blob's userId (older rows), else ''.
+ * @param {Array} row - campaigns-sheet row values
+ * @param {Array} headers - campaigns-sheet headers
+ * @returns {string}
+ */
+function getCampaignRowUserId(row, headers) {
+  try {
+    var idx = headers.indexOf("userId");
+    if (idx !== -1 && String(row[idx] || "").trim()) {
+      return String(row[idx]).trim();
+    }
+    var sIdx = headers.indexOf("settings");
+    if (sIdx !== -1) {
+      var raw = row[sIdx];
+      var s = typeof raw === "string" ? JSON.parse(raw) : (raw || {});
+      if (s && s.userId) return String(s.userId).trim();
+    }
+  } catch (e) {
+    Logger.log("[getCampaignRowUserId] " + e.message);
+  }
+  return "";
+}
+
+/**
+ * Per-user concurrent campaign pre-check (mirrors engine
+ * checkUserConcurrentCampaigns in utils/campaignConcurrency.js). Reads
+ * SETTINGS campaignConcurrentLimit (fallback 1 — safety valve) and counts
+ * this user's campaigns-sheet rows whose status is active
+ * (running/processing/staged/resting), excluding excludeCampaignId.
+ * 'resting' counts because a cooldown campaign wakes automatically via
+ * TRIGGERS and therefore still holds its slot. Fail-open on sheet errors
+ * (historical behavior) but logs.
+ * @param {string} userId
+ * @param {string} [excludeCampaignId]
+ * @returns {{allowed: boolean, current: number, limit: number}}
+ */
+function checkConcurrentCampaignsForUser(userId, excludeCampaignId) {
+  try {
+    var limit = parseInt(getSettingValue("campaignConcurrentLimit"), 10);
+    if (!isFinite(limit) || limit < 1) limit = 1;
+
+    var uid = String(userId || "").trim();
+    if (!uid) return { allowed: true, current: 0, limit: limit };
+
+    var result = getRowsByColumn("campaigns", "userId", uid);
+    if (!result.success) return { allowed: true, current: 0, limit: limit };
+
+    var headers = result.headers || [];
+    var userIdx = headers.indexOf("userId");
+    var statusIdx = headers.indexOf("status");
+    var campaignIdIdx = headers.indexOf("campaignId");
+    if (userIdx === -1 || statusIdx === -1) return { allowed: true, current: 0, limit: limit };
+
+    var excludeId = excludeCampaignId ? String(excludeCampaignId).trim() : null;
+    var activeStatuses = ["running", "processing", "staged", "resting"];
+    var current = 0;
+    (result.data || []).forEach(function (row) {
+      if (String(row[userIdx] || "").trim() !== uid) return;
+      if (excludeId && campaignIdIdx !== -1 && String(row[campaignIdIdx] || "").trim() === excludeId) return;
+      var status = String(row[statusIdx] || "").trim().toLowerCase();
+      if (activeStatuses.indexOf(status) !== -1) current++;
+    });
+
+    return { allowed: current < limit, current: current, limit: limit };
+  } catch (error) {
+    Logger.log("[checkConcurrentCampaignsForUser] Check failed (fail-open): " + error.message);
+    return { allowed: true, current: 0, limit: 1 };
+  }
+}
+
+/**
+ * Standard concurrent-limit rejection payload (same wording/shape as the
+ * engine's 429 so the frontend can show one message everywhere).
+ * @param {{current: number, limit: number}} conc
+ * @returns {Object}
+ */
+function concurrentLimitError(conc) {
+  return {
+    success: false,
+    concurrentLimit: true,
+    current: conc.current,
+    limit: conc.limit,
+    error: "Concurrent campaign limit reached (" + conc.current + "/" + conc.limit + " running). Pause or complete a campaign to free a slot."
+  };
+}
+
+/**
  * Start the full staged pipeline for an existing draft campaign via the
  * engine's pipeline-orchestrator (auto-chains Validate → Enrich → Personalize → Execute → Interact).
  * @param {Object} params - { campaignId }
@@ -812,6 +900,8 @@ function runCampaignPipeline(params) {
     // Apps Script web apps have a 6-minute limit, so we must not block.
     var pipelinePlatform = '';
     var pipelineAccountIds = [];
+    var pipelineUserId = '';
+    var pipelineStatusBefore = '';
     try {
       var campaignResult = getRowsByColumn("campaigns", "campaignId", campaignId);
       if (campaignResult.success && campaignResult.count > 0) {
@@ -826,22 +916,54 @@ function runCampaignPipeline(params) {
         var pipelineSettings = typeof pipelineSettingsRaw === "string" ? JSON.parse(pipelineSettingsRaw) : (pipelineSettingsRaw || {});
         pipelinePlatform = pipelineSettings.platform || '';
         pipelineAccountIds = pipelineSettings.accounts || [];
+        pipelineUserId = getCampaignRowUserId(campaignResult.data[0], campaignResult.headers);
+        var pipeStatusIdx = campaignResult.headers.indexOf("status");
+        pipelineStatusBefore = pipeStatusIdx !== -1 ? String(campaignResult.data[0][pipeStatusIdx] || "").trim() : '';
       }
     } catch (platformError) {
       Logger.log("[runCampaignPipeline] Could not resolve campaign platform: " + platformError.message);
     }
-    // Fan-out: one orchestrator trigger per owning server (scoped accountIds),
-    // fallback fleet only for accounts with no/inactive server.
-    dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
-      platform: pipelinePlatform,
-      serverType: ''
-    });
 
-    // Mark campaign as running immediately so the UI refreshes quickly.
+    // Per-user concurrent campaign guard (SETTINGS campaignConcurrentLimit).
+    // Pre-check BEFORE marking running/dispatching so the user actually sees
+    // this rejection — the orchestrator's own 429 is fire-and-forget.
+    if (pipelineUserId) {
+      var conc = checkConcurrentCampaignsForUser(pipelineUserId, campaignId);
+      if (!conc.allowed) {
+        Logger.log("[runCampaignPipeline] Blocked: user at " + conc.current + "/" + conc.limit + " concurrent campaigns.");
+        return concurrentLimitError(conc);
+      }
+    }
+
+    // Mark 'running' BEFORE dispatch so two rapid clicks (or two tabs) cannot
+    // both pass the pre-check, and so the orchestrator's exclude-self count
+    // matches reality. Also makes a dispatch failure revertable below.
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
       status: "running",
       updatedOn: new Date().toISOString(),
     });
+
+    // Fan-out: one orchestrator trigger per owning server (scoped accountIds),
+    // fallback fleet only for accounts with no/inactive server.
+    try {
+      dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
+        platform: pipelinePlatform,
+        serverType: ''
+      });
+    } catch (dispatchError) {
+      // Revert so a failed dispatch never leaves a zombie 'running' row with
+      // nothing dispatched. Keep the pre-start status when we know it.
+      var revertStatus = pipelineStatusBefore && pipelineStatusBefore.toLowerCase() !== "running" ? pipelineStatusBefore : "draft";
+      try {
+        setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+          status: revertStatus,
+          updatedOn: new Date().toISOString(),
+        });
+      } catch (revertError) {
+        Logger.log("[runCampaignPipeline] Failed to revert status after dispatch error: " + revertError.message);
+      }
+      throw dispatchError;
+    }
 
     return {
       success: true,
@@ -1053,6 +1175,20 @@ function resumeCampaign(params) {
     }
     if (normalized !== "paused" && normalized !== "resting" && normalized !== "limit reached") {
       return { success: false, error: "Only paused or resting campaigns can be resumed (current status: " + (currentStatus || "unknown") + ")." };
+    }
+
+    // Per-user concurrent campaign guard (SETTINGS campaignConcurrentLimit).
+    // Resume bypasses the pipeline pre-check entirely, so enforce the same
+    // limit here before flipping to 'running'. Exclude self — this campaign
+    // may itself be 'resting'/'paused' and we are continuing it, not
+    // starting a new one.
+    var resumeUserId = getCampaignRowUserId(row, headers);
+    if (resumeUserId) {
+      var resumeConc = checkConcurrentCampaignsForUser(resumeUserId, campaignId);
+      if (!resumeConc.allowed) {
+        Logger.log("[resumeCampaign] Blocked: user at " + resumeConc.current + "/" + resumeConc.limit + " concurrent campaigns.");
+        return concurrentLimitError(resumeConc);
+      }
     }
 
     const updates = {
