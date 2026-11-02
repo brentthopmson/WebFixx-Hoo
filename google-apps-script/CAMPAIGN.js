@@ -102,15 +102,100 @@ function resolveServerGroupsForAccounts(accountIds) {
 }
 
 /**
+ * True when a UrlFetchApp error is a read/deadline timeout (meaning the engine
+ * accepted the connection and is still executing a long campaign run).
+ */
+function isFetchTimeoutError(err) {
+  var msg = err && err.message ? String(err.message) : String(err || "");
+  return /timed?\s*out|SocketTimeoutException|deadline/i.test(msg);
+}
+
+/**
+ * Fast liveness ping against an engine base URL (/api/serverless-self?ping=1).
+ * Distinguishes a dead/offline server (HTTP 404/502/503/504/521/530 or DNS/conn
+ * refused) from a reachable server, and returns activeCampaignIds when present.
+ * @param {string} baseUrl - Engine base URL (without path)
+ * @param {string} [campaignId] - Optional campaignId to check in activeCampaignIds
+ * @returns {{ reachable: boolean, definiteDown: boolean, timeout?: boolean, activeCampaignIds?: string[]|null, isCampaignActive?: boolean, reason?: string }}
+ */
+function pingEngineServer(baseUrl, campaignId) {
+  if (!baseUrl) {
+    return { reachable: false, definiteDown: true, reason: "No engine URL configured" };
+  }
+  var cleanBase = String(baseUrl).replace(/\/+$/, "");
+  var pingUrl = cleanBase + "/api/serverless-self?ping=1" + (campaignId ? ("&campaignId=" + encodeURIComponent(campaignId)) : "");
+  try {
+    var resp = UrlFetchApp.fetch(pingUrl, {
+      method: "GET",
+      headers: { "ngrok-skip-browser-warning": "true" },
+      muteHttpExceptions: true,
+      timeout: 8000
+    });
+    var code = resp.getResponseCode();
+    var text = resp.getContentText() || "";
+    var parsed = null;
+    try { parsed = JSON.parse(text); } catch (parseErr) {}
+
+    if (code >= 200 && code < 300 && parsed && (parsed.alive === true || parsed.checks !== undefined)) {
+      var activeIds = Array.isArray(parsed.activeCampaignIds) ? parsed.activeCampaignIds.map(String) : null;
+      var isAct = campaignId && activeIds ? (activeIds.indexOf(String(campaignId).trim()) !== -1) : parsed.isCampaignActive;
+      return {
+        reachable: true,
+        definiteDown: false,
+        activeCampaignIds: activeIds,
+        isCampaignActive: isAct
+      };
+    }
+    // Older /api/serverless-self builds return 409 JSON when hostMatchedLinksRow=false on local/dev
+    if (code === 409 && parsed && (parsed.alive === true || parsed.checks !== undefined)) {
+      var activeIds409 = Array.isArray(parsed.activeCampaignIds) ? parsed.activeCampaignIds.map(String) : null;
+      var isAct409 = campaignId && activeIds409 ? (activeIds409.indexOf(String(campaignId).trim()) !== -1) : parsed.isCampaignActive;
+      return {
+        reachable: true,
+        definiteDown: false,
+        activeCampaignIds: activeIds409,
+        isCampaignActive: isAct409
+      };
+    }
+    return {
+      reachable: false,
+      definiteDown: true,
+      reason: "Engine server returned HTTP " + code
+    };
+  } catch (e) {
+    if (isFetchTimeoutError(e)) {
+      return {
+        reachable: false,
+        definiteDown: false,
+        timeout: true,
+        reason: "Engine ping timed out"
+      };
+    }
+    return {
+      reachable: false,
+      definiteDown: true,
+      reason: "Engine server unreachable: " + e.message
+    };
+  }
+}
+
+/**
  * Fire-and-forget dispatch to a specific engine instance (GAS 6-min limit —
  * campaign runs are long; we only need the engine to pick the job up).
  * @param {string} url - Full engine URL
  * @param {Object} payload - Request body
  * @param {string} label - Log label
+ * @returns {{ ok: boolean, error?: string }}
  */
 function fireEngineTrigger(url, payload, label) {
   try {
-    UrlFetchApp.fetch(url, {
+    var baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
+    var ping = pingEngineServer(baseUrl);
+    if (ping.definiteDown) {
+      Logger.log("[fireEngineTrigger] " + label + " → " + baseUrl + " offline: " + ping.reason);
+      return { ok: false, error: ping.reason };
+    }
+    var response = UrlFetchApp.fetch(url, {
       method: 'POST',
       contentType: 'application/json',
       headers: { 'ngrok-skip-browser-warning': 'true' },
@@ -118,9 +203,20 @@ function fireEngineTrigger(url, payload, label) {
       muteHttpExceptions: true,
       timeout: 30000
     });
+    var code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      Logger.log("[fireEngineTrigger] " + label + " → " + url + " HTTP " + code);
+      return { ok: false, error: "HTTP " + code };
+    }
     Logger.log("[fireEngineTrigger] " + label + " → " + url + " dispatched");
+    return { ok: true };
   } catch (e) {
-    Logger.log("[fireEngineTrigger] " + label + " → " + url + " failed (non-fatal): " + e.message);
+    if (isFetchTimeoutError(e)) {
+      Logger.log("[fireEngineTrigger] " + label + " → " + url + " running in background (30s read timeout reached)");
+      return { ok: true };
+    }
+    Logger.log("[fireEngineTrigger] " + label + " → " + url + " failed: " + e.message);
+    return { ok: false, error: e.message };
   }
 }
 
@@ -131,8 +227,7 @@ function fireEngineTrigger(url, payload, label) {
  * @param {Object} basePayload - Shared payload (campaignId, settings, context, ...)
  * @param {string[]} accountIds - Full account list from campaign settings
  * @param {Object} resolveFallback - { platform, serverType } for resolveEngineUrl
- * @returns {Object} { attempted: number, failed: number } — failed counts only
- *   immediate dispatch errors on the fallback (async fan-out can't be awaited)
+ * @returns {Object} { attempted: number, failed: number }
  */
 function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallback) {
   const result = { attempted: 0, failed: 0 };
@@ -145,8 +240,11 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       serverScope: serverUrl
     });
     result.attempted++;
-    fireEngineTrigger(serverUrl + path, scopedPayload,
+    const trig = fireEngineTrigger(serverUrl + path, scopedPayload,
       path + " server=" + serverUrl + " accounts=" + group.accountIds.length);
+    if (!trig || !trig.ok) {
+      result.failed++;
+    }
   });
 
   if (grouping.fallbackIds.length > 0 || Object.keys(grouping.groups).length === 0) {
@@ -154,8 +252,16 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
     const fallbackPayload = (accountIds && accountIds.length > 0 && grouping.fallbackIds.length > 0)
       ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: 'fallback' })
       : basePayload;
+    result.attempted++;
     try {
       const url = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || '', (resolveFallback && resolveFallback.serverType) || '');
+      const baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
+      const ping = pingEngineServer(baseUrl);
+      if (ping.definiteDown) {
+        result.failed++;
+        Logger.log("[dispatchCampaignToServers] fallback engine offline (" + baseUrl + "): " + ping.reason);
+        return result;
+      }
       const response = UrlFetchApp.fetch(url, {
         method: 'POST',
         contentType: 'application/json',
@@ -164,15 +270,18 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
         muteHttpExceptions: true,
         timeout: 60000
       });
-      result.attempted++;
       const code = response.getResponseCode();
       if (code < 200 || code >= 300) {
         result.failed++;
         Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path);
       }
     } catch (e) {
-      result.failed++;
-      Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + e.message);
+      if (isFetchTimeoutError(e)) {
+        Logger.log("[dispatchCampaignToServers] fallback running in background for " + path + " (60s read timeout reached)");
+      } else {
+        result.failed++;
+        Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + e.message);
+      }
     }
   }
 
@@ -946,10 +1055,13 @@ function runCampaignPipeline(params) {
     // Fan-out: one orchestrator trigger per owning server (scoped accountIds),
     // fallback fleet only for accounts with no/inactive server.
     try {
-      dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
+      var dispatch = dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
         platform: pipelinePlatform,
         serverType: ''
       });
+      if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
+        throw new Error("Engine server is offline or unreachable. Start the engine and try again.");
+      }
     } catch (dispatchError) {
       // Revert so a failed dispatch never leaves a zombie 'running' row with
       // nothing dispatched. Keep the pre-start status when we know it.
@@ -1132,6 +1244,24 @@ function pauseCampaign(params) {
       status: "paused",
       updatedOn: new Date().toISOString()
     };
+    const settingsIdx = headers.indexOf("settings");
+    if (settingsIdx !== -1 && row[settingsIdx]) {
+      try {
+        const settingsObj = typeof row[settingsIdx] === "string" ? JSON.parse(row[settingsIdx]) : (row[settingsIdx] || {});
+        if (settingsObj && typeof settingsObj === "object") {
+          let settingsChanged = false;
+          ["validationStatus", "enrichmentStatus", "personalizationStatus", "interactionStatus"].forEach(function (k) {
+            if (settingsObj[k] === "processing") {
+              settingsObj[k] = "idle";
+              settingsChanged = true;
+            }
+          });
+          if (settingsChanged) {
+            updates.settings = JSON.stringify(settingsObj);
+          }
+        }
+      } catch (e) {}
+    }
     const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
     if (!writeResult.success) {
       return { success: false, error: writeResult.error };
@@ -1207,11 +1337,121 @@ function resumeCampaign(params) {
     if (executionResult && executionResult.success) {
       return { success: true, message: "Campaign resumed and continued shooting.", status: "running", execution: executionResult };
     }
-    return { success: true, message: "Campaign resumed. Re-run or continue shooting manually if the engine did not continue.", status: "running", execution: executionResult };
+    // Engine failed to accept the resumed run — revert to 'paused' so it never
+    // sits stuck on 'running' while the engine is offline.
+    try {
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+        status: "paused",
+        updatedOn: new Date().toISOString()
+      });
+    } catch (revertErr) {}
+    return {
+      success: false,
+      error: (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Start the engine and try again.",
+      status: "paused",
+      execution: executionResult
+    };
   } catch (error) {
     Logger.log("Error in resumeCampaign: " + error.message);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Bridge liveness check: when a campaign row is 'running'/'processing', verify
+ * the owning engine server(s) are still reachable and actively executing it.
+ * If the engine was killed/stopped (or restarted and dropped the in-memory run),
+ * auto-pause the campaign in the sheet so the frontend never stays stuck on
+ * 'running' forever.
+ */
+function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
+  try {
+    if (!campaign) return false;
+    var curStatus = String(campaign.status || "").trim().toLowerCase();
+    if (curStatus !== "running" && curStatus !== "processing") return false;
+
+    var settings = (campaign.settings && typeof campaign.settings === "object") ? campaign.settings : {};
+    var accountIds = Array.isArray(settings.accounts) ? settings.accounts : [];
+    var platform = settings.platform || "";
+    var serverType = channelToServerType(settings.channel);
+
+    var updatedOnTime = campaign.updatedOn ? new Date(campaign.updatedOn).getTime() : 0;
+    var ageMs = (updatedOnTime > 0 && !isNaN(updatedOnTime)) ? (Date.now() - updatedOnTime) : 999999;
+
+    var grouping = resolveServerGroupsForAccounts(accountIds);
+    var targetServers = Object.keys(grouping.groups || {});
+    if (grouping.fallbackIds.length > 0 || targetServers.length === 0) {
+      var fallbackBase = resolveEngineUrl("", platform, serverType).replace(/\/+$/, "");
+      if (fallbackBase && targetServers.indexOf(fallbackBase) === -1) {
+        targetServers.push(fallbackBase);
+      }
+    }
+
+    if (targetServers.length === 0) return false;
+
+    var anyServerRunning = false;
+    var downReasons = [];
+
+    for (var i = 0; i < targetServers.length; i++) {
+      var srv = targetServers[i];
+      var ping = pingEngineServer(srv, campaignId);
+      if (ping.reachable) {
+        if (Array.isArray(ping.activeCampaignIds)) {
+          if (ping.isCampaignActive) {
+            anyServerRunning = true;
+            break;
+          } else if (ageMs < 25000) {
+            // Newly started or transitioning between stages on a live engine
+            anyServerRunning = true;
+            break;
+          } else {
+            downReasons.push("Engine is online but campaign process is no longer active");
+          }
+        } else {
+          // Legacy engine build without activeCampaignIds array — server is reachable
+          anyServerRunning = true;
+          break;
+        }
+      } else if (ping.timeout && !ping.definiteDown && ageMs < 300000) {
+        // Engine ping timed out (event loop busy with browser) and row updated <5m ago
+        anyServerRunning = true;
+        break;
+      } else {
+        downReasons.push(ping.reason || "Engine server stopped responding");
+      }
+    }
+
+    if (!anyServerRunning) {
+      var reasonMsg = downReasons.length > 0
+        ? downReasons[0] + " — campaign was automatically paused."
+        : "Engine server stopped responding — campaign was automatically paused.";
+
+      ["validationStatus", "enrichmentStatus", "personalizationStatus", "interactionStatus"].forEach(function (k) {
+        if (settings[k] === "processing") {
+          settings[k] = "idle";
+        }
+      });
+      settings.lastEngineError = reasonMsg;
+
+      var nowIso = new Date().toISOString();
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+        status: "paused",
+        settings: JSON.stringify(settings),
+        updatedOn: nowIso
+      });
+
+      campaign.status = "paused";
+      campaign.settings = settings;
+      campaign.updatedOn = nowIso;
+      campaign.engineStopped = true;
+      campaign.engineError = reasonMsg;
+      Logger.log("[checkAndPauseDeadEngineCampaign] Auto-paused campaign " + campaignId + ": " + reasonMsg);
+      return true;
+    }
+  } catch (e) {
+    Logger.log("[checkAndPauseDeadEngineCampaign] Error: " + e.message);
+  }
+  return false;
 }
 
 function getCampaign(params) {
@@ -1244,6 +1484,13 @@ function getCampaign(params) {
     }
     if (campaign.updatedOn) {
       try { campaign.updatedOn = JSON.parse(campaign.updatedOn); } catch (e) {}
+    }
+
+    // Bridge check: if the sheet still says 'running'/'processing', verify the
+    // engine server is actually alive and running this campaign; if the engine
+    // stopped responding, auto-pause the campaign and inform the frontend.
+    if (!expired) {
+      checkAndPauseDeadEngineCampaign(campaignId, campaign);
     }
 
     return { success: true, data: campaign };
