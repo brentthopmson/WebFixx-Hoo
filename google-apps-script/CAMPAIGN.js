@@ -536,7 +536,7 @@ function createNewCampaign(params) {
         var maxSetting = parseInt(getSettingValue("campaignMaxDurationDays"), 10);
         var maxDays = (!isNaN(maxSetting) && maxSetting > 0) ? maxSetting : 365;
         var requested = parseInt(parsedStrategy.durationDays, 10);
-        if (isNaN(requested) || requested <= 0) requested = 7; // default 7 days per voice directive
+        if (isNaN(requested) || requested <= 0) requested = maxDays; // default to the admin ceiling (no hardcoded duration)
         return Math.max(1, Math.min(requested, maxDays));
       })()
     };
