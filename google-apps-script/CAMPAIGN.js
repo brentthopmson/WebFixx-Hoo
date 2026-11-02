@@ -312,11 +312,88 @@ function getProjectAccounts(params) {
   };
 }
 
-/**
- * Trigger a new campaign execution via the serverless engine
- * @param {Object} params - Campaign parameters (accountIds, strategy, etc)
- * @returns {Object} Execution status
- */
+function buildCampaignStatsAccounts(accountIds, defaultPlatform, existingStats) {
+  var base = (existingStats && typeof existingStats === "object" && !Array.isArray(existingStats))
+    ? existingStats
+    : { totalActions: 0, interactions: 0, conversions: 0, inbox: 0, accounts: {} };
+  if (!base.accounts || typeof base.accounts !== "object") base.accounts = {};
+  if (typeof base.totalActions !== "number") base.totalActions = Number(base.interactions) || 0;
+  if (typeof base.interactions !== "number") base.interactions = base.totalActions || 0;
+  if (typeof base.conversions !== "number") base.conversions = 0;
+  if (typeof base.inbox !== "number") base.inbox = 0;
+
+  var ids = Array.isArray(accountIds) ? accountIds : [];
+  for (var i = 0; i < ids.length; i++) {
+    var aid = String(ids[i] || "").trim();
+    if (!aid) continue;
+    var identifier = aid;
+    var platform = defaultPlatform || "";
+    try {
+      var hubRes = getRowsByColumn("hub", "submissionId", aid);
+      if (hubRes.success && hubRes.count > 0) {
+        var r = hubRes.data[0];
+        var h = hubRes.headers;
+        var emIdx = h.indexOf("email");
+        var plIdx = h.indexOf("platform");
+        var tyIdx = h.indexOf("type");
+        if (emIdx !== -1 && r[emIdx]) identifier = String(r[emIdx]).trim();
+        if (plIdx !== -1 && r[plIdx]) platform = String(r[plIdx]).trim().toLowerCase();
+        else if (tyIdx !== -1 && r[tyIdx]) platform = String(r[tyIdx]).trim().toLowerCase();
+      }
+    } catch (e) {}
+    if (!base.accounts[aid]) {
+      base.accounts[aid] = {
+        identifier: identifier,
+        platform: platform,
+        total: 0,
+        usage: {}
+      };
+    } else {
+      if (identifier && (!base.accounts[aid].identifier || base.accounts[aid].identifier === aid)) {
+        base.accounts[aid].identifier = identifier;
+      }
+      if (platform && !base.accounts[aid].platform) {
+        base.accounts[aid].platform = platform;
+      }
+    }
+  }
+  return base;
+}
+
+function checkAndCompleteExpiredCampaign(campaignId, row, headers) {
+  try {
+    if (!row || !headers) return false;
+    var createdOnIdx = headers.indexOf("createdOn");
+    var settingsIdx = headers.indexOf("settings");
+    var statusIdx = headers.indexOf("status");
+    if (createdOnIdx === -1 || !row[createdOnIdx]) return false;
+    var settings = {};
+    if (settingsIdx !== -1 && row[settingsIdx]) {
+      try {
+        settings = typeof row[settingsIdx] === "string" ? JSON.parse(row[settingsIdx]) : (row[settingsIdx] || {});
+      } catch (e) {}
+    }
+    var durationDays = Number(settings.durationDays) || 7;
+    var createdOnTime = new Date(row[createdOnIdx]).getTime();
+    if (isNaN(createdOnTime) || createdOnTime <= 0) return false;
+    var maxDurationMs = durationDays * 24 * 60 * 60 * 1000;
+    if (Date.now() - createdOnTime >= maxDurationMs) {
+      var curStatus = statusIdx !== -1 ? String(row[statusIdx] || "").trim().toLowerCase() : "";
+      if (curStatus !== "completed") {
+        setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+          status: "completed",
+          updatedOn: new Date().toISOString()
+        });
+        Logger.log("[checkAndCompleteExpiredCampaign] Campaign " + campaignId + " duration (" + durationDays + "d) elapsed — marked completed.");
+      }
+      return true;
+    }
+  } catch (e) {
+    Logger.log("[checkAndCompleteExpiredCampaign] Error: " + e.message);
+  }
+  return false;
+}
+
 /**
  * Trigger a new campaign execution via the serverless engine
  * @param {Object} params - Campaign parameters (accountIds, strategy, etc)
@@ -464,6 +541,9 @@ function createNewCampaign(params) {
       })()
     };
 
+    var allConnectedAccounts = (accountIds || []).concat(settingsData.interactionAccounts || []);
+    var initialStats = buildCampaignStatsAccounts(allConnectedAccounts, settingsData.platform || settingsData.channel || "", null);
+
     const campaignData = {
       createdOn: new Date().toISOString(),
       campaignId: campaignId,
@@ -473,7 +553,7 @@ function createNewCampaign(params) {
       settings: JSON.stringify(settingsData),
       context: typeof strategyContext === "object" ? JSON.stringify(strategyContext) : (strategyContext || "{}"),
       status: initialStatus,
-      stats: JSON.stringify({ interactions: 0, conversions: 0, inbox: 0 }),
+      stats: JSON.stringify(initialStats),
       updatedOn: new Date().toISOString()
     };
 
@@ -607,9 +687,15 @@ function executeCampaign(params) {
 
     const row = result.data[0];
     const headers = result.headers;
+    if (checkAndCompleteExpiredCampaign(campaignId, row, headers)) {
+      return { success: false, error: "Campaign duration has elapsed and the campaign is completed.", status: "completed", completed: true };
+    }
     const currentStatus = row[headers.indexOf("status")];
     if (currentStatus && String(currentStatus).trim().toLowerCase() === "paused") {
       return { success: false, error: "Campaign is paused. Resume it to continue shooting." };
+    }
+    if (currentStatus && String(currentStatus).trim().toLowerCase() === "completed") {
+      return { success: false, error: "Campaign is already completed.", status: "completed", completed: true };
     }
 
     const settingsStr = row[headers.indexOf("settings")];
@@ -709,6 +795,13 @@ function runCampaignPipeline(params) {
     try {
       var campaignResult = getRowsByColumn("campaigns", "campaignId", campaignId);
       if (campaignResult.success && campaignResult.count > 0) {
+        if (checkAndCompleteExpiredCampaign(campaignId, campaignResult.data[0], campaignResult.headers)) {
+          return { success: false, error: "Campaign duration has elapsed and the campaign is completed.", status: "completed", completed: true };
+        }
+        var curPipelineStatus = String(campaignResult.data[0][campaignResult.headers.indexOf("status")] || "").trim().toLowerCase();
+        if (curPipelineStatus === "completed") {
+          return { success: false, error: "Campaign is already completed.", status: "completed", completed: true };
+        }
         var pipelineSettingsRaw = campaignResult.data[0][campaignResult.headers.indexOf("settings")];
         var pipelineSettings = typeof pipelineSettingsRaw === "string" ? JSON.parse(pipelineSettingsRaw) : (pipelineSettingsRaw || {});
         pipelinePlatform = pipelineSettings.platform || '';
@@ -807,6 +900,22 @@ function updateCampaign(params) {
             }
           }
           mergedSettingsStr = JSON.stringify(mergedSettings);
+          try {
+            var existingStatsObj = null;
+            if (existingResult && existingResult.success && existingResult.count > 0) {
+              var stIdx = existingResult.headers.indexOf("stats");
+              if (stIdx !== -1 && existingResult.data[0][stIdx]) {
+                existingStatsObj = typeof existingResult.data[0][stIdx] === "string"
+                  ? JSON.parse(existingResult.data[0][stIdx])
+                  : existingResult.data[0][stIdx];
+              }
+            }
+            var mergedAccIds = (mergedSettings.accounts || []).concat(mergedSettings.interactionAccounts || []);
+            var updatedStatsObj = buildCampaignStatsAccounts(mergedAccIds, mergedSettings.platform || mergedSettings.channel || "", existingStatsObj);
+            updates.stats = JSON.stringify(updatedStatsObj);
+          } catch (stErr) {
+            Logger.log("updateCampaign stats merge notice: " + stErr.message);
+          }
         }
       } catch (mergeErr) {
         Logger.log("updateCampaign settings merge failed, replacing wholesale: " + mergeErr.message);
@@ -913,9 +1022,15 @@ function resumeCampaign(params) {
 
     const headers = result.headers;
     const row = result.data[0];
+    if (checkAndCompleteExpiredCampaign(campaignId, row, headers)) {
+      return { success: false, error: "Campaign duration has elapsed and the campaign is completed.", status: "completed", completed: true };
+    }
     const currentStatus = row[headers.indexOf("status")];
     const normalized = currentStatus ? String(currentStatus).trim().toLowerCase() : "";
 
+    if (normalized === "completed") {
+      return { success: false, error: "Campaign is already completed and cannot be resumed.", status: "completed", completed: true };
+    }
     if (normalized !== "paused" && normalized !== "resting" && normalized !== "limit reached") {
       return { success: false, error: "Only paused or resting campaigns can be resumed (current status: " + (currentStatus || "unknown") + ")." };
     }
@@ -957,12 +1072,19 @@ function getCampaign(params) {
 
     var headers = result.headers;
     var row = result.data[0];
+    var expired = checkAndCompleteExpiredCampaign(campaignId, row, headers);
     var campaign = {};
     headers.forEach(function(h, i) { campaign[h] = row[i]; });
+    if (expired) {
+      campaign.status = "completed";
+    }
 
     // Parse JSON fields
     if (campaign.settings) {
       try { campaign.settings = JSON.parse(campaign.settings); } catch (e) {}
+    }
+    if (campaign.stats) {
+      try { campaign.stats = JSON.parse(campaign.stats); } catch (e) {}
     }
     if (campaign.updatedOn) {
       try { campaign.updatedOn = JSON.parse(campaign.updatedOn); } catch (e) {}
