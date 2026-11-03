@@ -2020,7 +2020,8 @@ function runSmartExtract(params) {
       return {
         success: true,
         data: responseBody.data,
-        message: "Extract completed for " + cat
+        status: responseBody.status || 'started',
+        message: responseBody.status === 'started' ? ("Extract started for " + cat) : ("Extract completed for " + cat)
       };
     } else {
       return {
