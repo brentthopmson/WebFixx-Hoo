@@ -278,12 +278,19 @@ class ExternalApisHandler:
                 **login_data
             }
             self.logger.debug(f"Sending payload to AppScript: {payload}")
-            response = self._post_appscript(payload)
+            try:
+                response = self._post_appscript(payload)
+            except requests.exceptions.Timeout:
+                self.logger.error("Login upstream (AppScript) timed out")
+                return {'error': 'Login is taking too long. Please try again in a moment.', 'success': False}
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Login upstream request error: {str(e)}")
+                return {'error': 'Could not reach the login service. Please try again.', 'success': False}
             self.logger.debug(f"Raw response from AppScript: {response.text}")
             return self._safe_json(response)
         except Exception as e:
             self.logger.error(f"Login error: {str(e)}")
-            return {'error': str(e)}
+            return {'error': str(e), 'success': False}
 
     def handle_register(self, registration_data):
         """Handle registration request"""
