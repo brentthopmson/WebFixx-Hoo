@@ -921,14 +921,19 @@ function handleLogin(params) {
     };
 
     // Notify admin who just logged in (opt-in via allowNotifyLogin setting).
-    notifyAdmin("Login", "User Logged In", {
-      userId: userId,
-      username: userData.username,
-      email: userData.email,
-      role: userData.role,
-      ip: (ipData && (ipData.ipAddress || ipData.ip)) || "",
-      device: (deviceInfo && deviceInfo.userAgent) ? deviceInfo.userAgent.substring(0, 80) : "",
-    });
+    // Best-effort: never fail/block the login response because of notification delivery.
+    try {
+      notifyAdmin("Login", "User Logged In", {
+        userId: userId,
+        username: userData.username,
+        email: userData.email,
+        role: userData.role,
+        ip: (ipData && (ipData.ipAddress || ipData.ip)) || "",
+        device: (deviceInfo && deviceInfo.userAgent) ? deviceInfo.userAgent.substring(0, 80) : "",
+      });
+    } catch (notifyErr) {
+      Logger.log(`[handleLogin] notifyAdmin failed (non-fatal): ${notifyErr && notifyErr.message ? notifyErr.message : notifyErr}`);
+    }
 
     Logger.log(`[handleLogin] completed in ${Date.now() - startTime}ms`);
     return createJsonResponse({
