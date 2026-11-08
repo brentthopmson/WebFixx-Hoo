@@ -1321,8 +1321,23 @@ function resumeCampaign(params) {
       }
     }
 
+    // Clear rest/lease markers on resume
+    var resumeSettings = {};
+    try {
+      var settingsIdx = headers.indexOf("settings");
+      if (settingsIdx !== -1) {
+        var rawS = row[settingsIdx];
+        resumeSettings = typeof rawS === "string" ? JSON.parse(rawS) : (rawS || {});
+      }
+    } catch (e) { resumeSettings = {}; }
+    delete resumeSettings.restUntil;
+    delete resumeSettings.restReason;
+    delete resumeSettings.restSetAt;
+    delete resumeSettings.runLease;
+
     const updates = {
       status: "running",
+      settings: JSON.stringify(resumeSettings),
       updatedOn: new Date().toISOString()
     };
     const writeResult = setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, updates);
@@ -1330,24 +1345,29 @@ function resumeCampaign(params) {
       return { success: false, error: writeResult.error };
     }
 
-    Logger.log(`[resumeCampaign] Campaign ${campaignId} resumed from 'paused', continuing shooting from checkpoint.`);
+    Logger.log(`[resumeCampaign] Campaign ${campaignId} resumed from '${normalized}', continuing shooting from checkpoint.`);
 
     // Continue shooting immediately from the checkpoint in one action.
     const executionResult = executeCampaign(params);
     if (executionResult && executionResult.success) {
       return { success: true, message: "Campaign resumed and continued shooting.", status: "running", execution: executionResult };
     }
-    // Engine failed to accept the resumed run — revert to 'paused' so it never
-    // sits stuck on 'running' while the engine is offline.
+    // Engine failed to accept the resumed run - keep paused + show error (strict manual control).
+    // Do NOT auto-retry; user must resume when engine is back.
     try {
+      delete resumeSettings.restUntil;
+      delete resumeSettings.restReason;
+      delete resumeSettings.restSetAt;
+      resumeSettings.lastEngineError = (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Resume manually when engine is back.";
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
         status: "paused",
+        settings: JSON.stringify(resumeSettings),
         updatedOn: new Date().toISOString()
       });
     } catch (revertErr) {}
     return {
       success: false,
-      error: (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Start the engine and try again.",
+      error: (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Resume manually when engine is back.",
       status: "paused",
       execution: executionResult
     };
@@ -1368,7 +1388,7 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
   try {
     if (!campaign) return false;
     var curStatus = String(campaign.status || "").trim().toLowerCase();
-    if (curStatus !== "running" && curStatus !== "processing") return false;
+    if (curStatus !== "running" && curStatus !== "processing" && curStatus !== "staged") return false;
 
     var settings = (campaign.settings && typeof campaign.settings === "object") ? campaign.settings : {};
     var accountIds = Array.isArray(settings.accounts) ? settings.accounts : [];
@@ -1432,6 +1452,10 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
         }
       });
       settings.lastEngineError = reasonMsg;
+      delete settings.runLease;
+      delete settings.restUntil;
+      delete settings.restReason;
+      delete settings.restSetAt;
 
       var nowIso = new Date().toISOString();
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
