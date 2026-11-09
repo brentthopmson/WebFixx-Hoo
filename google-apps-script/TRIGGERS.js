@@ -57,8 +57,12 @@ function checkAndResumeRestingCampaigns() {
         const createdOnTime = (createdOnIdx !== -1 && row[createdOnIdx]) ? new Date(row[createdOnIdx]).getTime() : NaN;
         const updatedOnTime = (updatedOnIdx !== -1 && row[updatedOnIdx]) ? new Date(row[updatedOnIdx]).getTime() : NaN;
 
-        // Expiration check: if campaign duration window has elapsed on ANY active/paused/resting row, complete it
-        if (!isNaN(createdOnTime)) {
+        // Expiration check: duration guards INTERACTIONS ONLY. A campaign
+        // with a list (fileUrl) must shoot the list to completion — never
+        // auto-complete it on duration. The engine (which knows list state)
+        // owns completion for dual-mode campaigns.
+        var durationGuardsInteractions = (settings.channel === "social") || !settings.fileUrl;
+        if (durationGuardsInteractions && !isNaN(createdOnTime)) {
           const durationDays = Number(settings.durationDays) || 7;
           const maxDurationMs = durationDays * 24 * 60 * 60 * 1000;
           if (now - createdOnTime >= maxDurationMs) {
