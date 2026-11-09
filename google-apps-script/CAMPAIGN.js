@@ -651,6 +651,7 @@ function createNewCampaign(params) {
       targetLink: parsedStrategy.targetLink || "",
       personalizeLink: parsedStrategy.personalizeLink === true,
       linkParam: parsedStrategy.linkParam || "email",
+      helperKeyword: parsedStrategy.helperKeyword || "",
       interactionTargetLink: parsedStrategy.interactionTargetLink || "",
       linkAfterTurns: (parsedStrategy.linkAfterTurns !== undefined && parsedStrategy.linkAfterTurns !== null) ? Number(parsedStrategy.linkAfterTurns) : 2,
       emailKeywords: parsedStrategy.emailKeywords || [],
