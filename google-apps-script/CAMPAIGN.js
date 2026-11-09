@@ -649,6 +649,10 @@ function createNewCampaign(params) {
       // Campaign mode + interactions-only (AI inbox watcher) support
       campaignMode: parsedStrategy.campaignMode || (fileUrl ? "file" : "interactions-only"),
       targetLink: parsedStrategy.targetLink || "",
+      personalizeLink: parsedStrategy.personalizeLink === true,
+      linkParam: parsedStrategy.linkParam || "email",
+      interactionTargetLink: parsedStrategy.interactionTargetLink || "",
+      linkAfterTurns: (parsedStrategy.linkAfterTurns !== undefined && parsedStrategy.linkAfterTurns !== null) ? Number(parsedStrategy.linkAfterTurns) : 2,
       emailKeywords: parsedStrategy.emailKeywords || [],
       emailStrategyPrompt: parsedStrategy.emailStrategyPrompt || "",
       interactionAccounts: parsedStrategy.interactionAccounts || [],
