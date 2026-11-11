@@ -20,11 +20,8 @@ var/
 .installed.cfg
 *.egg
 docs/
-google-apps-script/*
-!google-apps-script/GRAPH.js
-!google-apps-script/POST.js
-!google-apps-script/CAMPAIGN.js
-!google-apps-script/TRIGGERS.js
+google-apps-script/node_modules/
+google-apps-script/.clasp.json
 graphify-out/
 
 # Virtual Environment
