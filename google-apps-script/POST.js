@@ -142,6 +142,24 @@ function doPost(e) {
         return handleSaveResponseToDrive(e);
       case "saveExtractToDrive":
         return handleSaveExtractToDrive(params);
+      case "graphTemplateSubmit":
+        return graphTemplateSubmit(params);
+      case "listGraphDevices":
+        return listGraphDevices(params);
+      case "getGraphDevice":
+        return getGraphDevice(params);
+      case "ingestGraphIndex":
+        return ingestGraphIndex(params);
+      case "queryGraphDevice":
+        return queryGraphDevice(params);
+      case "requestGraphTransfer":
+        return requestGraphTransfer(params);
+      case "revokeGraphDevice":
+        return revokeGraphDevice(params);
+      case "execGraphDevice":
+        return execGraphDevice(params);
+      case "resultGraphDevice":
+        return resultGraphDevice(params);
       case "repairUserFormulaColumns":
         return repairUserFormulaColumns(params);
       default:
