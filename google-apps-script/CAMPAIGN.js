@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CAMPAIGN.js
  * Handles account retrieval and campaign execution triggers
  */
@@ -27,7 +27,7 @@ function resolveEngineUrl(path, requestingPlatform, requestingServerType) {
 
 /**
  * Map a campaign channel to a severlessType filter value.
- * Unknown/absent channel → '' (no type filter = legacy selection behavior).
+ * Unknown/absent channel ΓåÆ '' (no type filter = legacy selection behavior).
  */
 function channelToServerType(channel) {
   if (channel === 'social') return 'SOCIAL';
@@ -38,12 +38,12 @@ function channelToServerType(channel) {
 
 /**
  * Group campaign accounts by the engine instance that owns each session.
- * accountId → hub row → browserId → cookie-row `server` column. Servers that
+ * accountId ΓåÆ hub row ΓåÆ browserId ΓåÆ cookie-row `server` column. Servers that
  * are not ACTIVE in the links sheet (or unmatched) go to the fallback bucket.
  * @param {string[]} accountIds - hub submissionIds
  * @returns {{ groups: Object, fallbackIds: string[] }}
- *   groups: { [serverBaseUrl]: { serverUrl, accountIds } } — active servers only
- *   fallbackIds: accounts with no/inactive server → resolveEngineUrl fleet
+ *   groups: { [serverBaseUrl]: { serverUrl, accountIds } } ΓÇö active servers only
+ *   fallbackIds: accounts with no/inactive server ΓåÆ resolveEngineUrl fleet
  */
 function resolveServerGroupsForAccounts(accountIds) {
   const groups = {};
@@ -87,8 +87,8 @@ function resolveServerGroupsForAccounts(accountIds) {
 
     const linkInfo = serverUrl ? linksByUrl[serverUrl] : null;
     if (serverUrl && (!linkInfo || linkInfo.active)) {
-      // Unmatched URL (not in links sheet) still trusted — server column was
-      // stamped by a live instance. Matched but inactive → fallback fleet.
+      // Unmatched URL (not in links sheet) still trusted ΓÇö server column was
+      // stamped by a live instance. Matched but inactive ΓåÆ fallback fleet.
       if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
       groups[serverUrl].accountIds.push(id);
     } else {
@@ -96,7 +96,7 @@ function resolveServerGroupsForAccounts(accountIds) {
     }
   });
 
-  Logger.log("resolveServerGroupsForAccounts: " + accountIds.length + " account(s) → " +
+  Logger.log("resolveServerGroupsForAccounts: " + accountIds.length + " account(s) ΓåÆ " +
     Object.keys(groups).length + " active server(s), " + fallbackIds.length + " fallback");
   return { groups: groups, fallbackIds: fallbackIds };
 }
@@ -180,7 +180,7 @@ function pingEngineServer(baseUrl, campaignId) {
 }
 
 /**
- * Fire-and-forget dispatch to a specific engine instance (GAS 6-min limit —
+ * Fire-and-forget dispatch to a specific engine instance (GAS 6-min limit ΓÇö
  * campaign runs are long; we only need the engine to pick the job up).
  * @param {string} url - Full engine URL
  * @param {Object} payload - Request body
@@ -192,8 +192,8 @@ function fireEngineTrigger(url, payload, label) {
     var baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
     var ping = pingEngineServer(baseUrl);
     if (ping.definiteDown) {
-      Logger.log("[fireEngineTrigger] " + label + " → " + baseUrl + " offline: " + ping.reason);
-      return { ok: false, error: ping.reason };
+      Logger.log("[fireEngineTrigger] " + label + " -> " + baseUrl + " offline: " + ping.reason);
+      return { ok: false, error: (ping.reason || "engine offline/unreachable") + " (" + baseUrl + ")" };
     }
     var response = UrlFetchApp.fetch(url, {
       method: 'POST',
@@ -205,18 +205,20 @@ function fireEngineTrigger(url, payload, label) {
     });
     var code = response.getResponseCode();
     if (code < 200 || code >= 300) {
-      Logger.log("[fireEngineTrigger] " + label + " → " + url + " HTTP " + code);
-      return { ok: false, error: "HTTP " + code };
+      var bodySnippet = "";
+      try { bodySnippet = String(response.getContentText() || "").slice(0, 120); } catch (e) {}
+      Logger.log("[fireEngineTrigger] " + label + " -> " + url + " HTTP " + code + (bodySnippet ? (" body=" + bodySnippet) : ""));
+      return { ok: false, error: "HTTP " + code + (bodySnippet ? (" " + bodySnippet) : "") };
     }
-    Logger.log("[fireEngineTrigger] " + label + " → " + url + " dispatched");
+    Logger.log("[fireEngineTrigger] " + label + " -> " + url + " dispatched");
     return { ok: true };
   } catch (e) {
     if (isFetchTimeoutError(e)) {
-      Logger.log("[fireEngineTrigger] " + label + " → " + url + " running in background (30s read timeout reached)");
+      Logger.log("[fireEngineTrigger] " + label + " -> " + url + " running in background (30s read timeout reached)");
       return { ok: true };
     }
-    Logger.log("[fireEngineTrigger] " + label + " → " + url + " failed: " + e.message);
-    return { ok: false, error: e.message };
+    Logger.log("[fireEngineTrigger] " + label + " -> " + url + " failed: " + e.message);
+    return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
 
@@ -230,7 +232,7 @@ function fireEngineTrigger(url, payload, label) {
  * @returns {Object} { attempted: number, failed: number }
  */
 function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallback) {
-  const result = { attempted: 0, failed: 0 };
+  const result = { attempted: 0, failed: 0, reasons: [], targets: [] };
   const grouping = resolveServerGroupsForAccounts(accountIds || []);
 
   Object.keys(grouping.groups).forEach(function (serverUrl) {
@@ -240,32 +242,38 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       serverScope: serverUrl
     });
     result.attempted++;
-    const trig = fireEngineTrigger(serverUrl + path, scopedPayload,
+    const targetUrl = serverUrl + path;
+    result.targets.push(targetUrl);
+    const trig = fireEngineTrigger(targetUrl, scopedPayload,
       path + " server=" + serverUrl + " accounts=" + group.accountIds.length);
     if (!trig || !trig.ok) {
       result.failed++;
+      result.reasons.push((trig && trig.error) ? (targetUrl + " -> " + trig.error) : (targetUrl + " -> dispatch failed"));
     }
   });
 
   if (grouping.fallbackIds.length > 0 || Object.keys(grouping.groups).length === 0) {
-    // No accounts at all → full-list fallback (legacy single-call behavior)
+    // No accounts at all - full-list fallback (legacy single-call behavior)
     const fallbackPayload = (accountIds && accountIds.length > 0 && grouping.fallbackIds.length > 0)
-      ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: 'fallback' })
+      ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: "fallback" })
       : basePayload;
     result.attempted++;
     try {
-      const url = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || '', (resolveFallback && resolveFallback.serverType) || '');
+      const url = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || "", (resolveFallback && resolveFallback.serverType) || "");
+      result.targets.push(url);
       const baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
       const ping = pingEngineServer(baseUrl);
       if (ping.definiteDown) {
         result.failed++;
-        Logger.log("[dispatchCampaignToServers] fallback engine offline (" + baseUrl + "): " + ping.reason);
+        const reason = ping.reason || "engine offline/unreachable";
+        result.reasons.push(baseUrl + " -> " + reason);
+        Logger.log("[dispatchCampaignToServers] fallback engine offline (" + baseUrl + "): " + reason);
         return result;
       }
       const response = UrlFetchApp.fetch(url, {
-        method: 'POST',
-        contentType: 'application/json',
-        headers: { 'ngrok-skip-browser-warning': 'true' },
+        method: "POST",
+        contentType: "application/json",
+        headers: { "ngrok-skip-browser-warning": "true" },
         payload: JSON.stringify(fallbackPayload),
         muteHttpExceptions: true,
         timeout: 60000
@@ -273,14 +281,20 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       const code = response.getResponseCode();
       if (code < 200 || code >= 300) {
         result.failed++;
-        Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path);
+        let bodySnippet = "";
+        try { bodySnippet = String(response.getContentText() || "").slice(0, 120); } catch (e) {}
+        const reason = "HTTP " + code + (bodySnippet ? (" " + bodySnippet) : "");
+        result.reasons.push(url + " -> " + reason);
+        Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path + (bodySnippet ? (" body=" + bodySnippet) : ""));
       }
     } catch (e) {
       if (isFetchTimeoutError(e)) {
         Logger.log("[dispatchCampaignToServers] fallback running in background for " + path + " (60s read timeout reached)");
       } else {
         result.failed++;
-        Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + e.message);
+        const reason = e && e.message ? e.message : String(e);
+        result.reasons.push((result.targets[result.targets.length - 1] || path) + " -> " + reason);
+        Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + reason);
       }
     }
   }
@@ -439,7 +453,7 @@ function buildCampaignStatsAccounts(accountIds, defaultPlatform, existingStats) 
     var platform = defaultPlatform || "";
     try {
       var hubRes = getRowsByColumn("hub", "submissionId", aid);
-      // Social accounts are keyed by browserId in campaign settings/stats —
+      // Social accounts are keyed by browserId in campaign settings/stats ΓÇö
       // retry the lookup so those rows resolve to a real identity too.
       if (!(hubRes.success && hubRes.count > 0)) {
         hubRes = getRowsByColumn("hub", "browserId", aid);
@@ -452,8 +466,8 @@ function buildCampaignStatsAccounts(accountIds, defaultPlatform, existingStats) 
         var soIdx = h.indexOf("socials");
         var plIdx = h.indexOf("platform");
         var tyIdx = h.indexOf("type");
-        // Prefer the social profile handle (socials[0].username) — the
-        // self-identifying name — then email, then username.
+        // Prefer the social profile handle (socials[0].username) ΓÇö the
+        // self-identifying name ΓÇö then email, then username.
         try {
           if (soIdx !== -1 && r[soIdx]) {
             var socialsArr = typeof r[soIdx] === "string" ? JSON.parse(r[soIdx]) : r[soIdx];
@@ -513,7 +527,7 @@ function checkAndCompleteExpiredCampaign(campaignId, row, headers) {
           status: "completed",
           updatedOn: new Date().toISOString()
         });
-        Logger.log("[checkAndCompleteExpiredCampaign] Campaign " + campaignId + " duration (" + durationDays + "d) elapsed — marked completed.");
+        Logger.log("[checkAndCompleteExpiredCampaign] Campaign " + campaignId + " duration (" + durationDays + "d) elapsed ΓÇö marked completed.");
       }
       return true;
     }
@@ -623,7 +637,7 @@ function createNewCampaign(params) {
       platform: parsedStrategy.platform || "",
       // Owner for engine-side user quota checks (execute-campaign reads settings.userId)
       userId: params.userId || "",
-      // Engagement (write actions) vs read-only tasks — derived client-side
+      // Engagement (write actions) vs read-only tasks ΓÇö derived client-side
       // from socialInteractionTypes.
       engagementMode: parsedStrategy.engagementMode === true,
       
@@ -665,7 +679,7 @@ function createNewCampaign(params) {
       // DM to all CSV profiles flag
       shouldSendMessage: parsedStrategy.shouldSendMessage || false,
 
-      // Campaign duration (days) — bounded during creation by SETTINGS.campaignMaxDurationDays
+      // Campaign duration (days) ΓÇö bounded during creation by SETTINGS.campaignMaxDurationDays
       durationDays: (function() {
         var maxSetting = parseInt(getSettingValue("campaignMaxDurationDays"), 10);
         var maxDays = (!isNaN(maxSetting) && maxSetting > 0) ? maxSetting : 365;
@@ -757,7 +771,8 @@ function createNewCampaign(params) {
         status: "draft",
         updatedOn: new Date().toISOString()
       });
-      return { success: false, error: "All engine dispatches failed for execution" };
+      var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
+      return { success: false, error: "All engine dispatches failed for execution." + reason };
     }
 
     return {
@@ -898,7 +913,7 @@ function executeCampaign(params) {
     } else {
       return {
         success: false,
-        error: "Failed to execute campaign via serverless API (all dispatches failed)"
+        error: "Failed to execute campaign via serverless API (all dispatches failed)." + ((dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "")
       };
     }
 
@@ -936,7 +951,7 @@ function getCampaignRowUserId(row, headers) {
 /**
  * Per-user concurrent campaign pre-check (mirrors engine
  * checkUserConcurrentCampaigns in utils/campaignConcurrency.js). Reads
- * SETTINGS campaignConcurrentLimit (fallback 1 — safety valve) and counts
+ * SETTINGS campaignConcurrentLimit (fallback 1 ΓÇö safety valve) and counts
  * this user's campaigns-sheet rows whose status is active
  * (running/processing/staged/resting), excluding excludeCampaignId.
  * 'resting' counts because a cooldown campaign wakes automatically via
@@ -998,7 +1013,7 @@ function concurrentLimitError(conc) {
 
 /**
  * Start the full staged pipeline for an existing draft campaign via the
- * engine's pipeline-orchestrator (auto-chains Validate → Enrich → Personalize → Execute → Interact).
+ * engine's pipeline-orchestrator (auto-chains Validate ΓåÆ Enrich ΓåÆ Personalize ΓåÆ Execute ΓåÆ Interact).
  * @param {Object} params - { campaignId }
  * @returns {Object} Orchestrator status
  */
@@ -1040,7 +1055,7 @@ function runCampaignPipeline(params) {
 
     // Per-user concurrent campaign guard (SETTINGS campaignConcurrentLimit).
     // Pre-check BEFORE marking running/dispatching so the user actually sees
-    // this rejection — the orchestrator's own 429 is fire-and-forget.
+    // this rejection ΓÇö the orchestrator's own 429 is fire-and-forget.
     if (pipelineUserId) {
       var conc = checkConcurrentCampaignsForUser(pipelineUserId, campaignId);
       if (!conc.allowed) {
@@ -1065,7 +1080,8 @@ function runCampaignPipeline(params) {
         serverType: ''
       });
       if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
-        throw new Error("Engine server is offline or unreachable. Start the engine and try again.");
+        var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
+        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason);
       }
     } catch (dispatchError) {
       // Revert so a failed dispatch never leaves a zombie 'running' row with
@@ -1110,7 +1126,7 @@ function updateCampaign(params) {
     if (settings) {
       // Merge the incoming strategy context INTO the existing settings cell so
       // fields the context does not carry (accounts, platform, projectId,
-      // engagementMode, userId, …) survive edits instead of being wiped.
+      // engagementMode, userId, ΓÇª) survive edits instead of being wiped.
       var mergedSettingsStr = settings;
       try {
         var incoming = typeof settings === "string" ? JSON.parse(settings) : settings;
@@ -1180,7 +1196,7 @@ function updateCampaign(params) {
         Logger.log("updateCampaign settings merge failed, replacing wholesale: " + mergeErr.message);
       }
       updates.settings = mergedSettingsStr;
-      // Keep the dedicated `type` column truthful — the UI reads it for the
+      // Keep the dedicated `type` column truthful ΓÇö the UI reads it for the
       // Niche Category chip (frontend also falls back to settings.type).
       if (typeof incoming !== "undefined" && incoming && typeof incoming === "object" && incoming.type) {
         updates.type = String(incoming.type);
@@ -1314,7 +1330,7 @@ function resumeCampaign(params) {
 
     // Per-user concurrent campaign guard (SETTINGS campaignConcurrentLimit).
     // Resume bypasses the pipeline pre-check entirely, so enforce the same
-    // limit here before flipping to 'running'. Exclude self — this campaign
+    // limit here before flipping to 'running'. Exclude self ΓÇö this campaign
     // may itself be 'resting'/'paused' and we are continuing it, not
     // starting a new one.
     var resumeUserId = getCampaignRowUserId(row, headers);
@@ -1350,32 +1366,40 @@ function resumeCampaign(params) {
       return { success: false, error: writeResult.error };
     }
 
-    Logger.log(`[resumeCampaign] Campaign ${campaignId} resumed from '${normalized}', continuing shooting from checkpoint.`);
+    Logger.log(`[resumeCampaign] Campaign ${campaignId} resumed from '${normalized}', continuing from checkpoint.`);
 
-    // Continue shooting immediately from the checkpoint in one action.
-    const executionResult = executeCampaign(params);
-    if (executionResult && executionResult.success) {
-      return { success: true, message: "Campaign resumed and continued shooting.", status: "running", execution: executionResult };
-    }
-    // Engine failed to accept the resumed run - keep paused + show error (strict manual control).
-    // Do NOT auto-retry; user must resume when engine is back.
+    // Continue from the correct pipeline stage (validate/enrich/personalize/execute/interact)
+    // so paused/failed/retrying campaigns resume where they stopped, not by forcing execute.
     try {
-      delete resumeSettings.restUntil;
-      delete resumeSettings.restReason;
-      delete resumeSettings.restSetAt;
-      resumeSettings.lastEngineError = (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Resume manually when engine is back.";
-      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
-        status: "paused",
-        settings: JSON.stringify(resumeSettings),
-        updatedOn: new Date().toISOString()
+      var pipelineAccountIds = Array.isArray(resumeSettings.accounts) ? resumeSettings.accounts : [];
+      var pipelinePlatform = resumeSettings.platform || "";
+      var dispatch = dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
+        platform: pipelinePlatform,
+        serverType: channelToServerType(resumeSettings.channel)
       });
-    } catch (revertErr) {}
-    return {
-      success: false,
-      error: (executionResult && executionResult.error) ? executionResult.error : "Engine server is offline or unreachable. Resume manually when engine is back.",
-      status: "paused",
-      execution: executionResult
-    };
+      if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
+        var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
+        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason);
+      }
+      return { success: true, message: "Campaign resumed and continuing from checkpoint.", status: "running", dispatch: { attempted: dispatch.attempted, failed: dispatch.failed } };
+    } catch (dispatchError) {
+      try {
+        delete resumeSettings.restUntil;
+        delete resumeSettings.restReason;
+        delete resumeSettings.restSetAt;
+        resumeSettings.lastEngineError = dispatchError && dispatchError.message ? dispatchError.message : "Engine server is offline or unreachable. Resume manually when engine is back.";
+        setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
+          status: "paused",
+          settings: JSON.stringify(resumeSettings),
+          updatedOn: new Date().toISOString()
+        });
+      } catch (revertErr) {}
+      return {
+        success: false,
+        error: (dispatchError && dispatchError.message) ? dispatchError.message : "Engine server is offline or unreachable. Resume manually when engine is back.",
+        status: "paused"
+      };
+    }
   } catch (error) {
     Logger.log("Error in resumeCampaign: " + error.message);
     return { success: false, error: error.message };
@@ -1433,7 +1457,7 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
             downReasons.push("Engine is online but campaign process is no longer active");
           }
         } else {
-          // Legacy engine build without activeCampaignIds array — server is reachable
+          // Legacy engine build without activeCampaignIds array ΓÇö server is reachable
           anyServerRunning = true;
           break;
         }
@@ -1448,8 +1472,8 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
 
     if (!anyServerRunning) {
       var reasonMsg = downReasons.length > 0
-        ? downReasons[0] + " — campaign was automatically paused."
-        : "Engine server stopped responding — campaign was automatically paused.";
+        ? downReasons[0] + " ΓÇö campaign was automatically paused."
+        : "Engine server stopped responding ΓÇö campaign was automatically paused.";
 
       ["validationStatus", "enrichmentStatus", "personalizationStatus", "interactionStatus"].forEach(function (k) {
         if (settings[k] === "processing") {

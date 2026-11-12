@@ -3,6 +3,7 @@
 var GRAPH_SHEET_NAME = "GRAPH";
 var GRAPH_COLUMNS = [
   "deviceId","userId","projectId","templateId","platform","agentType","agentVersion",
+  "ipData","deviceData",
   "pairedAt","status","approvedRoots","graphIndexFileId","graphIndexUrl",
   "graphIndexSize","lastIndexedAt","lastSeenAt","tokenHash","server","audit"
 ];
@@ -82,6 +83,9 @@ function graphTemplateSubmit(params) {
     var projectId = params.projectId;
     var templateId = params.templateId;
     var platform = params.platform || "windows";
+    var ipData = params.ipData;
+    var deviceData = params.deviceData;
+    var server = params.server;
     var sheet = getGraphSheet();
     var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
     // append row
@@ -91,6 +95,9 @@ function graphTemplateSubmit(params) {
       if (c === "projectId") return projectId || "";
       if (c === "templateId") return templateId || "";
       if (c === "platform") return platform;
+      if (c === "ipData") return ipData ? JSON.stringify(ipData) : "";
+      if (c === "deviceData") return deviceData ? JSON.stringify(deviceData) : "";
+      if (c === "server") return server || "";
       if (c === "status") return "PENDING";
       if (c === "pairedAt") return new Date().toISOString();
       if (c === "approvedRoots") return "[]";
