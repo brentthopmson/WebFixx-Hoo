@@ -366,7 +366,6 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       result.failed++;
     }
   }
-  }
 
   return result;
 }
