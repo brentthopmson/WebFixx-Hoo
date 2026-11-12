@@ -162,6 +162,10 @@ function doPost(e) {
         return resultGraphDevice(params);
       case "repairUserFormulaColumns":
         return repairUserFormulaColumns(params);
+      case "migrateCookieServerUrls":
+        return handleMigrateCookieServerUrls(params);
+      case "deactivateStaleLink":
+        return handleDeactivateStaleLink(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -197,6 +201,78 @@ function notifySiteVisit(params) {
  * used range (getDataRange) is returned, so the engine can read projects/hub even while
  * the Sheets API OAuth token is invalid.
  */
+
+/**
+ * On-demand cleanup: migrate cookie-row server stamps from an old engine URL to a new one.
+ * Called by engine sync-tunnels when this server's public URL changes (or on startup).
+ * Params: { oldUrl, newUrl } (oldUrl required). If newUrl omitted/empty, clears the stamp.
+ */
+function handleMigrateCookieServerUrls(params) {
+  try {
+    var oldUrl = String((params && params.oldUrl) || "").trim().replace(/\/+$/, "");
+    var newUrl = String((params && params.newUrl) || "").trim().replace(/\/+$/, "");
+    if (!oldUrl) return createJsonResponse({ success: false, error: "oldUrl required" });
+
+    var cookieSheetName = (CONFIG && CONFIG.SHEET_NAME && CONFIG.SHEET_NAME.COOKIE) || "cookie";
+    var res = getAllRows(cookieSheetName);
+    if (!res || !res.success) {
+      return createJsonResponse({ success: false, error: (res && res.error) || "failed to read cookie sheet" });
+    }
+    var headers = res.headers || [];
+    var serverIdx = headers.indexOf("server");
+    var browserIdx = headers.indexOf("browserId");
+    if (serverIdx === -1) {
+      return createJsonResponse({ success: true, updated: 0, reason: "no server column" });
+    }
+
+    var updated = 0;
+    var rows = res.data || [];
+    for (var i = 0; i < rows.length; i++) {
+      var current = String(rows[i][serverIdx] || "").trim().replace(/\/+$/, "");
+      if (!current) continue;
+      if (current !== oldUrl) continue;
+      var browserId = browserIdx !== -1 ? String(rows[i][browserIdx] || "").trim() : "";
+      var rowNumber = i + 2;
+      var payload = { server: newUrl || "" };
+      var write = browserId
+        ? setMultipleCellDataByColumnSearch(cookieSheetName, "browserId", browserId, payload)
+        : updateRowCellsByNumber(cookieSheetName, rowNumber, payload);
+      if (write && write.success) updated++;
+    }
+
+    Logger.log("[handleMigrateCookieServerUrls] " + oldUrl + " -> " + (newUrl || "(cleared)") + " updated=" + updated);
+    return createJsonResponse({ success: true, oldUrl: oldUrl, newUrl: newUrl || "", updated: updated });
+  } catch (error) {
+    Logger.log("[handleMigrateCookieServerUrls] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * On-demand cleanup: mark a links-sheet server entry as unhealthy/inactive by URL.
+ * Params: { url, status?, health? }
+ */
+function handleDeactivateStaleLink(params) {
+  try {
+    var url = String((params && params.url) || "").trim().replace(/\/+$/, "");
+    if (!url) return createJsonResponse({ success: false, error: "url required" });
+    var status = String((params && params.status) || "FAILED").trim().toUpperCase();
+    var health = String((params && params.health) || "DOWN").trim().toUpperCase();
+
+    var linksSheet = (CONFIG && CONFIG.SHEET_NAME && CONFIG.SHEET_NAME.LINKS) || "links";
+    var payload = { severlessStatus: status, severlessHealth: health };
+    var ok1 = setMultipleCellDataByColumnSearch(linksSheet, "severlessURL", url, payload);
+    var ok2 = setMultipleCellDataByColumnSearch(linksSheet, "severlessURL", url + "/", payload);
+
+    var success = !!((ok1 && ok1.success) || (ok2 && ok2.success));
+    Logger.log("[handleDeactivateStaleLink] " + url + " status=" + status + " health=" + health + " success=" + success);
+    return createJsonResponse({ success: success, url: url, status: status, health: health });
+  } catch (error) {
+    Logger.log("[handleDeactivateStaleLink] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
 function handleGetData(params) {
   try {
     const sheetName = params.sheetname || params.sheetName;

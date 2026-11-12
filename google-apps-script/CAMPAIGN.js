@@ -74,12 +74,27 @@ function resolveServerGroupsForAccounts(accountIds) {
   }
 
   var unmatchedPingCache = {};
-  accountIds.forEach(function (id) {
-    let serverUrl = null;
+  var cleanedCookieServers = {};
+  function clearStaleCookieServer(browserId, staleUrl, reason) {
+    if (!browserId || !staleUrl) return;
+    var key = browserId + "|" + staleUrl;
+    if (cleanedCookieServers[key]) return;
+    cleanedCookieServers[key] = true;
     try {
-      const res = getRowsByColumn("hub", "submissionId", id);
+      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.COOKIE, "browserId", browserId, { server: "" });
+      Logger.log("resolveServerGroupsForAccounts: cleared stale cookie server for " + browserId + " (" + staleUrl + ") reason=" + reason);
+    } catch (ce) {
+      Logger.log("resolveServerGroupsForAccounts: failed to clear cookie server for " + browserId + " (non-fatal): " + ce.message);
+    }
+  }
+
+  accountIds.forEach(function (id) {
+    var serverUrl = null;
+    var browserId = "";
+    try {
+      var res = getRowsByColumn("hub", "submissionId", id);
       if (res.success && res.count > 0) {
-        const browserId = res.data[0][res.headers.indexOf("browserId")];
+        browserId = String(res.data[0][res.headers.indexOf("browserId")] || "").trim();
         if (browserId) serverUrl = getServerForBrowserId(browserId);
       }
     } catch (rowErr) {
@@ -91,13 +106,15 @@ function resolveServerGroupsForAccounts(accountIds) {
       return;
     }
 
-    const linkInfo = linksByUrl[serverUrl] || null;
+    var linkInfo = linksByUrl[serverUrl] || null;
     if (linkInfo) {
       if (linkInfo.active) {
         if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
         groups[serverUrl].accountIds.push(id);
       } else {
-        Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " inactive in links (" + linkInfo.status + "/" + linkInfo.health + "), using fallback");
+        // Matched but inactive/DOWN in links sheet -> fallback fleet and self-heal stale stamp.
+        Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " inactive in links (" + linkInfo.status + "/" + linkInfo.health + "), clearing stamp and using fallback");
+        clearStaleCookieServer(browserId, serverUrl, "inactive-in-links");
         fallbackIds.push(id);
       }
       return;
@@ -115,7 +132,8 @@ function resolveServerGroupsForAccounts(accountIds) {
       if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
       groups[serverUrl].accountIds.push(id);
     } else {
-      Logger.log("resolveServerGroupsForAccounts: " + id + " -> stale server " + serverUrl + " (" + unmatchedPingCache[serverUrl].reason + "), using fallback");
+      Logger.log("resolveServerGroupsForAccounts: " + id + " -> stale server " + serverUrl + " (" + unmatchedPingCache[serverUrl].reason + "), clearing stamp and using fallback");
+      clearStaleCookieServer(browserId, serverUrl, "unmatched-unreachable");
       fallbackIds.push(id);
     }
   });
@@ -323,6 +341,7 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
         var ping = pingEngineServer(baseUrl);
         if (ping.definiteDown) {
           const reason = ping.reason || "engine offline/unreachable";
+          markLinkServerUnhealthy(baseUrl, reason);
           result.reasons.push(baseUrl + " -> " + reason);
           Logger.log("[dispatchCampaignToServers] fallback candidate offline (" + baseUrl + "): " + reason);
           continue;
