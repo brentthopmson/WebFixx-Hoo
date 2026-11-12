@@ -1099,6 +1099,43 @@ function concurrentLimitError(conc) {
  * @param {Object} params - { campaignId }
  * @returns {Object} Orchestrator status
  */
+
+/**
+ * Resolve an effective platform for campaign routing when settings.platform is empty.
+ * Derives from the campaign's selected account(s) (cookie/hub platform), so account-session
+ * campaigns are matched against servers that actually support that account platform (e.g. OUTLOOK).
+ */
+function resolveCampaignRoutingPlatform(settings, accountIds) {
+  var p = (settings && settings.platform) ? String(settings.platform).trim() : "";
+  if (p) return p;
+  try {
+    var ids = Array.isArray(accountIds) ? accountIds : ((settings && settings.accounts) || []);
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i];
+      if (!id) continue;
+      // accountId is hub submissionId -> get browserId -> cookie platform
+      var res = getRowsByColumn("hub", "submissionId", id);
+      if (res && res.success && res.count > 0) {
+        var h = res.headers || [];
+        var bIdx = h.indexOf("browserId");
+        var browserId = bIdx !== -1 ? String(res.data[0][bIdx] || "").trim() : "";
+        if (browserId && typeof getPlatformForBrowserId === "function") {
+          var cp = String(getPlatformForBrowserId(browserId) || "").trim();
+          if (cp) return cp;
+        }
+        // fallback: hub row may carry platform/type
+        var pIdx = h.indexOf("platform");
+        if (pIdx !== -1 && res.data[0][pIdx]) return String(res.data[0][pIdx]).trim();
+        var tIdx = h.indexOf("type");
+        if (tIdx !== -1 && res.data[0][tIdx]) return String(res.data[0][tIdx]).trim();
+      }
+    }
+  } catch (e) {
+    Logger.log("[resolveCampaignRoutingPlatform] non-fatal: " + e.message);
+  }
+  return "";
+}
+
 function runCampaignPipeline(params) {
   try {
     const { campaignId } = params;
@@ -1125,7 +1162,7 @@ function runCampaignPipeline(params) {
         }
         var pipelineSettingsRaw = campaignResult.data[0][campaignResult.headers.indexOf("settings")];
         var pipelineSettings = typeof pipelineSettingsRaw === "string" ? JSON.parse(pipelineSettingsRaw) : (pipelineSettingsRaw || {});
-        pipelinePlatform = pipelineSettings.platform || '';
+        pipelinePlatform = resolveCampaignRoutingPlatform(pipelineSettings, pipelineSettings.accounts || []) || '';
         pipelineAccountIds = pipelineSettings.accounts || [];
         pipelineUserId = getCampaignRowUserId(campaignResult.data[0], campaignResult.headers);
         var pipeStatusIdx = campaignResult.headers.indexOf("status");
@@ -1454,7 +1491,7 @@ function resumeCampaign(params) {
     // so paused/failed/retrying campaigns resume where they stopped, not by forcing execute.
     try {
       var pipelineAccountIds = Array.isArray(resumeSettings.accounts) ? resumeSettings.accounts : [];
-      var pipelinePlatform = resumeSettings.platform || "";
+      var pipelinePlatform = resolveCampaignRoutingPlatform(resumeSettings, pipelineAccountIds) || "";
       var dispatch = dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
         platform: pipelinePlatform,
         serverType: channelToServerType(resumeSettings.channel)
@@ -1503,7 +1540,7 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
 
     var settings = (campaign.settings && typeof campaign.settings === "object") ? campaign.settings : {};
     var accountIds = Array.isArray(settings.accounts) ? settings.accounts : [];
-    var platform = settings.platform || "";
+    var platform = resolveCampaignRoutingPlatform(settings, accountIds) || "";
     var serverType = channelToServerType(settings.channel);
 
     var updatedOnTime = campaign.updatedOn ? new Date(campaign.updatedOn).getTime() : 0;
