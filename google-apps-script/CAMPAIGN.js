@@ -1680,7 +1680,13 @@ function validateCampaignEmails(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/validate-campaign"), payload);
+    var validateUrl = resolveEngineUrl("/api/validate-campaign", settings.platform || "", channelToServerType(settings.channel));
+    if (!validateUrl) {
+      settings.validationStatus = "idle";
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, { settings: JSON.stringify(settings), updatedOn: new Date().toISOString() });
+      return { success: false, error: "No eligible engine server for CAMPAIGN/EMAIL validate (check category/type/platform/status)." };
+    }
+    var fetchResult = fetchEngineJson(validateUrl, payload);
     var apiResult = fetchResult.body;
 
     return {
@@ -1740,7 +1746,13 @@ function enrichCampaignLeads(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/enrich-campaign"), payload);
+    var enrichUrl = resolveEngineUrl("/api/enrich-campaign", settings.platform || "", channelToServerType(settings.channel));
+    if (!enrichUrl) {
+      settings.enrichmentStatus = "idle";
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, { settings: JSON.stringify(settings), updatedOn: new Date().toISOString() });
+      return { success: false, error: "No eligible engine server for CAMPAIGN/EMAIL enrich (check category/type/platform/status)." };
+    }
+    var fetchResult = fetchEngineJson(enrichUrl, payload);
     var apiResult = fetchResult.body;
 
     return {
@@ -1800,7 +1812,13 @@ function personalizeCampaignEmails(params) {
       context: contextStr ? (typeof contextStr === "string" ? JSON.parse(contextStr) : contextStr) : {}
     };
 
-    var fetchResult = fetchEngineJson(resolveEngineUrl("/api/personalize-campaign"), payload);
+    var personalizeUrl = resolveEngineUrl("/api/personalize-campaign", settings.platform || "", channelToServerType(settings.channel));
+    if (!personalizeUrl) {
+      settings.personalizationStatus = "idle";
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, { settings: JSON.stringify(settings), updatedOn: new Date().toISOString() });
+      return { success: false, error: "No eligible engine server for CAMPAIGN/EMAIL personalize (check category/type/platform/status)." };
+    }
+    var fetchResult = fetchEngineJson(personalizeUrl, payload);
     var apiResult = fetchResult.body;
 
     return {
