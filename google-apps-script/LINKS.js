@@ -1267,9 +1267,13 @@ function getBestServerlessEndpoint(category, fallbackBaseUrl, visitorIpData, req
     }
 
     if (allHealthy.length === 0) {
-      Logger.log("getBestServerlessEndpoint: No rows at all in links sheet. Using fallback.");
       var zeroRowReason = requestingServerType ? "no rows matching server type " + requestingServerType
-        : (requestingPlatform ? "no platform-qualified rows" : "fallback no rows");
+        : (requestingPlatform ? "no platform-qualified rows" : "no eligible rows");
+      Logger.log("getBestServerlessEndpoint: No eligible rows after filters. " + zeroRowReason);
+      // Do NOT fall back to an unrelated/random server when eligibility (category/type/platform) is required.
+      if (requestingCategory || requestingServerType || requestingPlatform) {
+        return null;
+      }
       return fallbackEndpoint("fallback", fallbackBaseUrl, pathSuffix, zeroRowReason);
     }
 
@@ -1294,16 +1298,19 @@ function getBestServerlessEndpoint(category, fallbackBaseUrl, visitorIpData, req
     var reason;
 
     // Only rows the operator explicitly marked ACTIVE (or RATE-LIMITED, still serving)
-// are pickable. FAILED and blank/unknown status rows are NEVER pickable — an empty
-// severlessStatus is an unconfigured/dummy row and must not be routed to.
-var pickable = allHealthy.filter(function (c) {
-  return (c.status === 'ACTIVE' || c.status === 'RATE-LIMITED') && !c.failed;
-});
+    // are pickable. FAILED and blank/unknown status rows are NEVER pickable.
+    // Health is NOT a selection/routing criterion (status only).
+    var pickable = allHealthy.filter(function (c) {
+      return (c.status === 'ACTIVE' || c.status === 'RATE-LIMITED') && !c.failed;
+    });
 
     if (pickable.length === 0) {
-      Logger.log("getBestServerlessEndpoint: No pickable (ACTIVE/RATE-LIMITED) server — only FAILED/blank rows. Using fallback.");
       var noPickableReason = requestingServerType ? "no server-type-qualified pickable server"
         : (requestingPlatform ? "no platform-qualified pickable server" : "no pickable server");
+      Logger.log("getBestServerlessEndpoint: No pickable (ACTIVE/RATE-LIMITED) server. " + noPickableReason);
+      if (requestingCategory || requestingServerType || requestingPlatform) {
+        return null;
+      }
       return fallbackEndpoint("fallback", fallbackBaseUrl, pathSuffix, noPickableReason);
     }
 
@@ -1334,50 +1341,40 @@ var pickable = allHealthy.filter(function (c) {
     var capacityFree = pickable.filter(function (c) { return !c.capSaturated; });
     var capacityPool = capacityFree.length > 0 ? capacityFree : pickable;
 
-    // Tier 1: fully healthy (status ACTIVE AND health ACTIVE) and within physical limits.
-    var tier1 = capacityPool.filter(function (c) {
-      return c.status === 'ACTIVE' && c.health === 'ACTIVE' && !c.overLimit;
+    // Status only (health never a criterion). Prefer ACTIVE within physical limits.
+    var tierActive = capacityPool.filter(function (c) {
+      return c.status === 'ACTIVE' && !c.overLimit;
     });
 
-    if (tier1.length > 0) {
-      best = pickByGeoLoad(tier1);
-      reason = "healthy-active geo+capacity+load";
+    if (tierActive.length > 0) {
+      best = pickByGeoLoad(tierActive);
+      reason = "active-geo+capacity+load";
     } else {
-      // Tier 2: ACTIVE status regardless of health column, within physical limits.
-      var tier2 = capacityPool.filter(function (c) {
-        return c.status === 'ACTIVE' && !c.overLimit;
+      // RATE-LIMITED status (operator/manual), within physical limits.
+      var tierRateLimited = capacityPool.filter(function (c) {
+        return c.status === 'RATE-LIMITED' && !c.overLimit;
       });
-      if (tier2.length > 0) {
-        best = pickByGeoLoad(tier2);
-        reason = "active-limited-health";
+      if (tierRateLimited.length > 0) {
+        best = pickByGeoLoad(tierRateLimited);
+        reason = "rate-limited but within limit";
       } else {
-        // Tier 3: RATE-LIMITED status (operator/manual), within physical limits.
-        var tier3 = capacityPool.filter(function (c) {
-          return c.status === 'RATE-LIMITED' && !c.overLimit;
-        });
-        if (tier3.length > 0) {
-          best = pickByGeoLoad(tier3);
-          reason = "rate-limited but within limit";
+        // Any other non-FAILED row within limit — least-bad last resort.
+        var withinLimit = capacityPool.filter(function (c) { return !c.overLimit; });
+        if (withinLimit.length > 0) {
+          best = pickByGeoLoad(withinLimit);
+          reason = "least-bad";
         } else {
-          // Tier 4: any OTHER non-FAILED row within limit — least-bad last resort (FAILED excluded).
-          var withinLimit = capacityPool.filter(function (c) { return !c.overLimit; });
-          if (withinLimit.length > 0) {
-            best = pickByGeoLoad(withinLimit);
-            reason = "least-bad";
-          } else {
-            // Tier 5: all candidates over budget — prefer free capacity, then
-            // least live load, then least usage (FAILED excluded).
-            var overLimitPool = capacityFree.length > 0 ? capacityFree : pickable;
-            overLimitPool.sort(function (a, b) {
-              if (!!a.capSaturated !== !!b.capSaturated) return a.capSaturated ? 1 : -1;
-              var aLoad = (a.capLoad === null || a.capLoad === undefined || isNaN(a.capLoad)) ? 1 : a.capLoad;
-              var bLoad = (b.capLoad === null || b.capLoad === undefined || isNaN(b.capLoad)) ? 1 : b.capLoad;
-              if (aLoad !== bLoad) return aLoad - bLoad;
-              return a.score - b.score;
-            });
-            best = overLimitPool[0];
-            reason = capacityFree.length > 0 ? "least-bad-overlimit" : "all-saturated-least-loaded";
-          }
+          // All candidates over budget — prefer free capacity, then least live load, then least usage.
+          var overLimitPool = capacityFree.length > 0 ? capacityFree : pickable;
+          overLimitPool.sort(function (a, b) {
+            if (!!a.capSaturated !== !!b.capSaturated) return a.capSaturated ? 1 : -1;
+            var aLoad = (a.capLoad === null || a.capLoad === undefined || isNaN(a.capLoad)) ? 1 : a.capLoad;
+            var bLoad = (b.capLoad === null || b.capLoad === undefined || isNaN(b.capLoad)) ? 1 : b.capLoad;
+            if (aLoad !== bLoad) return aLoad - bLoad;
+            return a.score - b.score;
+          });
+          best = overLimitPool[0];
+          reason = capacityFree.length > 0 ? "least-bad-overlimit" : "all-saturated-least-loaded";
         }
       }
     }

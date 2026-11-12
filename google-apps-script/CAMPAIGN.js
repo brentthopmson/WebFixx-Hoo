@@ -15,13 +15,16 @@
 function resolveEngineUrl(path, requestingPlatform, requestingServerType) {
   try {
     var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN', requestingPlatform || '', requestingServerType || '');
-    var base = (best && best.severlessURL)
-      ? best.severlessURL.replace(/\/+$/, '')
-      : String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '');
-    return base + path;
+    if (best && best.severlessURL) {
+      var base = String(best.severlessURL).replace(/\/+$/, '');
+      return base + path;
+    }
+    // No eligible server for requested category/type/platform. Do NOT fall back to a random/unrelated server.
+    Logger.log('[resolveEngineUrl] no eligible CAMPAIGN server for platform=' + (requestingPlatform || '') + ' type=' + (requestingServerType || ''));
+    return '';
   } catch (e) {
-    Logger.log('[resolveEngineUrl] fallback to CONFIG.EXTERNAL_API: ' + e.message);
-    return String(CONFIG.EXTERNAL_API || '').replace(/\/+$/, '') + path;
+    Logger.log('[resolveEngineUrl] selection error (no fallback to unrelated server): ' + e.message);
+    return '';
   }
 }
 
@@ -50,7 +53,8 @@ function resolveServerGroupsForAccounts(accountIds) {
   const fallbackIds = [];
   if (!accountIds || accountIds.length === 0) return { groups: groups, fallbackIds: fallbackIds };
 
-  // Links sheet lookup for the active check (one read, cached by getCachedRows)
+  // Links sheet lookup for the status check (one read, cached by getCachedRows).
+  // Health is NOT a routing criterion — status only.
   let linksByUrl = {};
   try {
     const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
@@ -64,8 +68,8 @@ function resolveServerGroupsForAccounts(accountIds) {
           const url = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
           if (!url) return;
           const status = statusIdx !== -1 ? String(row[statusIdx] || '').trim().toUpperCase() : 'ACTIVE';
-          const health = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : 'OK';
-          linksByUrl[url] = { active: (status === 'ACTIVE' && health !== 'DOWN'), status: status, health: health };
+          const health = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : '';
+          linksByUrl[url] = { active: (status === 'ACTIVE'), status: status, health: health };
         });
       }
     }
@@ -109,11 +113,12 @@ function resolveServerGroupsForAccounts(accountIds) {
     var linkInfo = linksByUrl[serverUrl] || null;
     if (linkInfo) {
       if (linkInfo.active) {
+        // Status ACTIVE -> trust this server for the session (health not a criterion).
         if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
         groups[serverUrl].accountIds.push(id);
       } else {
-        // Matched but inactive/DOWN in links sheet -> fallback fleet and self-heal stale stamp.
-        Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " inactive in links (" + linkInfo.status + "/" + linkInfo.health + "), clearing stamp and using fallback");
+        // Matched but not ACTIVE in links (e.g. FAILED/blank) -> fallback fleet and self-heal stale stamp.
+        Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " not active in links (status=" + linkInfo.status + "), clearing stamp and using fallback");
         clearStaleCookieServer(browserId, serverUrl, "inactive-in-links");
         fallbackIds.push(id);
       }
@@ -300,34 +305,27 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: "fallback" })
       : basePayload;
 
-    // Build candidate base URLs: best resolved endpoint first, then other ACTIVE servers from links.
+    // Use ONLY the eligibility-aware resolved endpoint for the requested CAMPAIGN/type/platform.
+    // Never add arbitrary "other active" servers (would bypass category/type/platform).
     let candidates = [];
     try {
       const resolvedUrl = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || "", (resolveFallback && resolveFallback.serverType) || "");
-      const resolvedBase = String(resolvedUrl).replace(/\/api\/[^/]+$/, "").replace(/\/+$/, "");
-      if (resolvedBase && resolvedBase.startsWith("http")) candidates.push(resolvedBase);
+      if (resolvedUrl) {
+        const resolvedBase = String(resolvedUrl).replace(/\/api\/[^/]+$/, "").replace(/\/+$/, "");
+        if (resolvedBase && resolvedBase.startsWith("http")) candidates.push(resolvedBase);
+      } else {
+        Logger.log("[dispatchCampaignToServers] no eligible CAMPAIGN server for fallback (platform=" + ((resolveFallback && resolveFallback.platform) || "") + ", type=" + ((resolveFallback && resolveFallback.serverType) || "") + ")");
+      }
     } catch (re) {
       Logger.log("[dispatchCampaignToServers] resolveEngineUrl failed: " + re.message);
     }
-    try {
-      const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
-      if (linksResult && linksResult.success && linksResult.data) {
-        const h = linksResult.headers || [];
-        const urlIdx = h.indexOf('severlessURL');
-        const statusIdx = h.indexOf('severlessStatus');
-        const healthIdx = h.indexOf('severlessHealth');
-        if (urlIdx !== -1) {
-          linksResult.data.forEach(function (row) {
-            const u = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
-            if (!u || !u.startsWith('http')) return;
-            const st = statusIdx !== -1 ? String(row[statusIdx] || '').trim().toUpperCase() : 'ACTIVE';
-            const hl = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : 'OK';
-            if (st === 'ACTIVE' && hl !== 'DOWN' && candidates.indexOf(u) === -1) candidates.push(u);
-          });
-        }
-      }
-    } catch (le) {
-      Logger.log("[dispatchCampaignToServers] links candidate scan failed (non-fatal): " + le.message);
+
+    if (candidates.length === 0) {
+      result.attempted++;
+      result.failed++;
+      result.reasons.push("no eligible engine server for requested campaign category/type/platform (not routing to unrelated servers)");
+      Logger.log("[dispatchCampaignToServers] refusing to dispatch " + path + " - no eligible server");
+      return result;
     }
 
     result.attempted++;
@@ -379,9 +377,6 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
       }
     }
     if (!dispatched) {
-      if (candidates.length === 0) {
-        result.reasons.push("no eligible engine server found in links/selection");
-      }
       result.failed++;
     }
   }
