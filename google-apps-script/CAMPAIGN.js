@@ -234,11 +234,33 @@ function pingEngineServer(baseUrl, campaignId) {
  * @param {string} label - Log label
  * @returns {{ ok: boolean, error?: string }}
  */
+/**
+ * Best-effort: mark a links-sheet server as unhealthy (informational) when definitively unreachable.
+ * Health is NOT used for routing/selection; status remains the criterion.
+ */
+function markLinkServerUnhealthy(baseUrl, reason) {
+  if (!baseUrl) return;
+  var base = String(baseUrl).trim().replace(/\/+$/, "");
+  if (!base || !base.startsWith("http")) return;
+  var candidates = [base, base + "/"];
+  for (var i = 0; i < candidates.length; i++) {
+    try {
+      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.LINKS, "severlessURL", candidates[i], { severlessHealth: "DOWN" });
+      Logger.log("[markLinkServerUnhealthy] marked health DOWN " + candidates[i] + " reason=" + (reason || ""));
+    } catch (e) {
+      // non-fatal; row may not exist for this exact string form
+    }
+  }
+}
+
 function fireEngineTrigger(url, payload, label) {
   try {
     var baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
     var ping = pingEngineServer(baseUrl);
     if (ping.definiteDown) {
+      if (typeof markLinkServerUnhealthy === "function") {
+        try { markLinkServerUnhealthy(baseUrl, ping.reason || "definiteDown"); } catch (e) {}
+      }
       Logger.log("[fireEngineTrigger] " + label + " -> " + baseUrl + " offline: " + ping.reason);
       return { ok: false, error: (ping.reason || "engine offline/unreachable") + " (" + baseUrl + ")" };
     }
@@ -339,7 +361,9 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
         var ping = pingEngineServer(baseUrl);
         if (ping.definiteDown) {
           const reason = ping.reason || "engine offline/unreachable";
-          markLinkServerUnhealthy(baseUrl, reason);
+          if (typeof markLinkServerUnhealthy === "function") {
+            try { markLinkServerUnhealthy(baseUrl, reason); } catch (e) {}
+          }
           result.reasons.push(baseUrl + " -> " + reason);
           Logger.log("[dispatchCampaignToServers] fallback candidate offline (" + baseUrl + "): " + reason);
           continue;
