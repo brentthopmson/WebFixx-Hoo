@@ -113,9 +113,23 @@ function resolveServerGroupsForAccounts(accountIds) {
     var linkInfo = linksByUrl[serverUrl] || null;
     if (linkInfo) {
       if (linkInfo.active) {
-        // Status ACTIVE -> trust this server for the session (health not a criterion).
-        if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
-        groups[serverUrl].accountIds.push(id);
+        // Status ACTIVE in links, but verify reachability on-demand (handles stale/dead URLs still marked ACTIVE).
+        if (!unmatchedPingCache.hasOwnProperty(serverUrl)) {
+          var lp = pingEngineServer(serverUrl);
+          unmatchedPingCache[serverUrl] = { ok: !lp.definiteDown, reason: lp.reason || (!lp.definiteDown ? "reachable" : "unreachable") };
+          Logger.log("resolveServerGroupsForAccounts: probed ACTIVE links server " + serverUrl + " -> " + (unmatchedPingCache[serverUrl].ok ? "ok" : ("down: " + unmatchedPingCache[serverUrl].reason)));
+          if (lp.definiteDown) {
+            try { markLinkServerUnhealthy(serverUrl, lp.reason || "definiteDown"); } catch (me) {}
+          }
+        }
+        if (unmatchedPingCache[serverUrl].ok) {
+          if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
+          groups[serverUrl].accountIds.push(id);
+        } else {
+          Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " ACTIVE in links but unreachable (" + unmatchedPingCache[serverUrl].reason + "), clearing stamp and using fallback");
+          clearStaleCookieServer(browserId, serverUrl, "active-but-unreachable");
+          fallbackIds.push(id);
+        }
       } else {
         // Matched but not ACTIVE in links (e.g. FAILED/blank) -> fallback fleet and self-heal stale stamp.
         Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " not active in links (status=" + linkInfo.status + "), clearing stamp and using fallback");
