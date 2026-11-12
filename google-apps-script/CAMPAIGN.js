@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CAMPAIGN.js
  * Handles account retrieval and campaign execution triggers
  */
@@ -73,6 +73,7 @@ function resolveServerGroupsForAccounts(accountIds) {
     Logger.log("resolveServerGroupsForAccounts: links sheet read failed (non-fatal): " + linkErr.message);
   }
 
+  var unmatchedPingCache = {};
   accountIds.forEach(function (id) {
     let serverUrl = null;
     try {
@@ -85,13 +86,36 @@ function resolveServerGroupsForAccounts(accountIds) {
       Logger.log("resolveServerGroupsForAccounts: lookup failed for " + id + " (non-fatal): " + rowErr.message);
     }
 
-    const linkInfo = serverUrl ? linksByUrl[serverUrl] : null;
-    if (serverUrl && (!linkInfo || linkInfo.active)) {
-      // Unmatched URL (not in links sheet) still trusted ΓÇö server column was
-      // stamped by a live instance. Matched but inactive ΓåÆ fallback fleet.
+    if (!serverUrl) {
+      fallbackIds.push(id);
+      return;
+    }
+
+    const linkInfo = linksByUrl[serverUrl] || null;
+    if (linkInfo) {
+      if (linkInfo.active) {
+        if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
+        groups[serverUrl].accountIds.push(id);
+      } else {
+        Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " inactive in links (" + linkInfo.status + "/" + linkInfo.health + "), using fallback");
+        fallbackIds.push(id);
+      }
+      return;
+    }
+
+    // Unmatched/stale URL (not in links sheet): verify reachability before trusting it.
+    // Prevents dispatching to dead ngrok/tunnel URLs stamped on old sessions.
+    if (!unmatchedPingCache.hasOwnProperty(serverUrl)) {
+      var ping = pingEngineServer(serverUrl);
+      var ok = !ping.definiteDown;
+      unmatchedPingCache[serverUrl] = { ok: ok, reason: ping.reason || (ok ? "reachable" : "unreachable") };
+      Logger.log("resolveServerGroupsForAccounts: probed unmatched server " + serverUrl + " -> " + (ok ? "ok" : ("down: " + unmatchedPingCache[serverUrl].reason)));
+    }
+    if (unmatchedPingCache[serverUrl].ok) {
       if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
       groups[serverUrl].accountIds.push(id);
     } else {
+      Logger.log("resolveServerGroupsForAccounts: " + id + " -> stale server " + serverUrl + " (" + unmatchedPingCache[serverUrl].reason + "), using fallback");
       fallbackIds.push(id);
     }
   });
@@ -257,46 +281,91 @@ function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallbac
     const fallbackPayload = (accountIds && accountIds.length > 0 && grouping.fallbackIds.length > 0)
       ? Object.assign({}, basePayload, { accountIds: grouping.fallbackIds, serverScope: "fallback" })
       : basePayload;
-    result.attempted++;
+
+    // Build candidate base URLs: best resolved endpoint first, then other ACTIVE servers from links.
+    let candidates = [];
     try {
-      const url = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || "", (resolveFallback && resolveFallback.serverType) || "");
-      result.targets.push(url);
-      const baseUrl = String(url).replace(/\/api\/[^/]+$/, "");
-      const ping = pingEngineServer(baseUrl);
-      if (ping.definiteDown) {
-        result.failed++;
-        const reason = ping.reason || "engine offline/unreachable";
-        result.reasons.push(baseUrl + " -> " + reason);
-        Logger.log("[dispatchCampaignToServers] fallback engine offline (" + baseUrl + "): " + reason);
-        return result;
+      const resolvedUrl = resolveEngineUrl(path, (resolveFallback && resolveFallback.platform) || "", (resolveFallback && resolveFallback.serverType) || "");
+      const resolvedBase = String(resolvedUrl).replace(/\/api\/[^/]+$/, "").replace(/\/+$/, "");
+      if (resolvedBase && resolvedBase.startsWith("http")) candidates.push(resolvedBase);
+    } catch (re) {
+      Logger.log("[dispatchCampaignToServers] resolveEngineUrl failed: " + re.message);
+    }
+    try {
+      const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
+      if (linksResult && linksResult.success && linksResult.data) {
+        const h = linksResult.headers || [];
+        const urlIdx = h.indexOf('severlessURL');
+        const statusIdx = h.indexOf('severlessStatus');
+        const healthIdx = h.indexOf('severlessHealth');
+        if (urlIdx !== -1) {
+          linksResult.data.forEach(function (row) {
+            const u = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
+            if (!u || !u.startsWith('http')) return;
+            const st = statusIdx !== -1 ? String(row[statusIdx] || '').trim().toUpperCase() : 'ACTIVE';
+            const hl = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : 'OK';
+            if (st === 'ACTIVE' && hl !== 'DOWN' && candidates.indexOf(u) === -1) candidates.push(u);
+          });
+        }
       }
-      const response = UrlFetchApp.fetch(url, {
-        method: "POST",
-        contentType: "application/json",
-        headers: { "ngrok-skip-browser-warning": "true" },
-        payload: JSON.stringify(fallbackPayload),
-        muteHttpExceptions: true,
-        timeout: 60000
-      });
-      const code = response.getResponseCode();
-      if (code < 200 || code >= 300) {
-        result.failed++;
+    } catch (le) {
+      Logger.log("[dispatchCampaignToServers] links candidate scan failed (non-fatal): " + le.message);
+    }
+
+    result.attempted++;
+    var dispatched = false;
+    var sawTimeout = false;
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var baseUrl = candidates[ci];
+      var url = baseUrl + path;
+      result.targets.push(url);
+      try {
+        var ping = pingEngineServer(baseUrl);
+        if (ping.definiteDown) {
+          const reason = ping.reason || "engine offline/unreachable";
+          result.reasons.push(baseUrl + " -> " + reason);
+          Logger.log("[dispatchCampaignToServers] fallback candidate offline (" + baseUrl + "): " + reason);
+          continue;
+        }
+        const response = UrlFetchApp.fetch(url, {
+          method: "POST",
+          contentType: "application/json",
+          headers: { "ngrok-skip-browser-warning": "true" },
+          payload: JSON.stringify(fallbackPayload),
+          muteHttpExceptions: true,
+          timeout: 60000
+        });
+        const code = response.getResponseCode();
+        if (code >= 200 && code < 300) {
+          dispatched = true;
+          Logger.log("[dispatchCampaignToServers] fallback dispatched via " + baseUrl);
+          break;
+        }
         let bodySnippet = "";
         try { bodySnippet = String(response.getContentText() || "").slice(0, 120); } catch (e) {}
         const reason = "HTTP " + code + (bodySnippet ? (" " + bodySnippet) : "");
         result.reasons.push(url + " -> " + reason);
-        Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path + (bodySnippet ? (" body=" + bodySnippet) : ""));
-      }
-    } catch (e) {
-      if (isFetchTimeoutError(e)) {
-        Logger.log("[dispatchCampaignToServers] fallback running in background for " + path + " (60s read timeout reached)");
-      } else {
-        result.failed++;
-        const reason = e && e.message ? e.message : String(e);
-        result.reasons.push((result.targets[result.targets.length - 1] || path) + " -> " + reason);
-        Logger.log("[dispatchCampaignToServers] fallback failed for " + path + ": " + reason);
+        Logger.log("[dispatchCampaignToServers] fallback HTTP " + code + " for " + path + " via " + baseUrl + (bodySnippet ? (" body=" + bodySnippet) : ""));
+      } catch (e) {
+        if (isFetchTimeoutError(e)) {
+          sawTimeout = true;
+          dispatched = true; // running in background
+          Logger.log("[dispatchCampaignToServers] fallback running in background for " + path + " via " + baseUrl + " (60s read timeout reached)");
+          break;
+        } else {
+          const reason = e && e.message ? e.message : String(e);
+          result.reasons.push(url + " -> " + reason);
+          Logger.log("[dispatchCampaignToServers] fallback failed for " + path + " via " + baseUrl + ": " + reason);
+        }
       }
     }
+    if (!dispatched) {
+      if (candidates.length === 0) {
+        result.reasons.push("no eligible engine server found in links/selection");
+      }
+      result.failed++;
+    }
+  }
   }
 
   return result;
