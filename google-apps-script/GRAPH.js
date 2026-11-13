@@ -38,8 +38,9 @@ function rowToObject(headers, row) {
   return o;
 }
 
-function getBestServerlessEndpoint() { return String(CONFIG ? CONFIG.EXTERNAL_API : ""); }
-function resolveEngineUrl() { return String(CONFIG ? CONFIG.EXTERNAL_API : ""); }
+// GRAPH module uses CONFIG.EXTERNAL_API directly (no eligibility filtering needed for graph workloads).
+// Renamed to avoid overriding LINKS.js's full implementation used by CAMPAIGN routing.
+function getGraphServerUrl() { return String(CONFIG ? CONFIG.EXTERNAL_API : ""); }
 function getServerForBrowserId(browserId) { return resolveEngineUrl(); }
 
 function listGraphDevices(params) {

@@ -166,6 +166,8 @@ function doPost(e) {
         return handleMigrateCookieServerUrls(params);
       case "deactivateStaleLink":
         return handleDeactivateStaleLink(params);
+      case "getDriveFileText":
+        return handleGetDriveFileText(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -269,6 +271,26 @@ function handleDeactivateStaleLink(params) {
     return createJsonResponse({ success: success, url: url, status: status, health: health });
   } catch (error) {
     Logger.log("[handleDeactivateStaleLink] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Read a Drive file's text content by fileId.
+ * Used as App Script fallback when OAuth2 tokens are dead.
+ * @param {Object} params - { fileId }
+ * @returns {Object} { success, content } or { success: false, error }
+ */
+function handleGetDriveFileText(params) {
+  try {
+    var fileId = String((params && params.fileId) || "").trim();
+    if (!fileId) return createJsonResponse({ success: false, error: "fileId required" });
+    var file = DriveApp.getFileById(fileId);
+    var content = file.getBlob().getDataAsString();
+    Logger.log("[handleGetDriveFileText] read " + content.length + " chars from " + fileId);
+    return createJsonResponse({ success: true, content: content });
+  } catch (error) {
+    Logger.log("[handleGetDriveFileText] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }

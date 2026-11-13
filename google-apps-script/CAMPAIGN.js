@@ -14,7 +14,23 @@
  */
 function resolveEngineUrl(path, requestingPlatform, requestingServerType) {
   try {
+    // Log links sheet state for diagnostics
+    try {
+      var lr = getAllRows(CONFIG.SHEET_NAME.LINKS);
+      if (lr && lr.success && lr.data) {
+        var h = lr.headers;
+        var urlI = h.indexOf('severlessURL');
+        var statusI = h.indexOf('severlessStatus');
+        var catI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesscategory'; });
+        var typeI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesstype'; });
+        var platI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlessplatform'; });
+        lr.data.forEach(function(row) {
+          Logger.log('[resolveEngineUrl] LINKS ROW: url=' + (urlI!==-1?row[urlI]:'') + ' status=' + (statusI!==-1?row[statusI]:'') + ' cat=' + (catI!==-1?row[catI]:'') + ' type=' + (typeI!==-1?row[typeI]:'') + ' plat=' + (platI!==-1?row[platI]:''));
+        });
+      }
+    } catch (logErr) { Logger.log('[resolveEngineUrl] links log error: ' + logErr.message); }
     var best = getBestServerlessEndpoint(null, CONFIG.EXTERNAL_API, null, 'CAMPAIGN', requestingPlatform || '', requestingServerType || '');
+    Logger.log('[resolveEngineUrl] requestingPlatform=' + (requestingPlatform||'') + ' requestingServerType=' + (requestingServerType||'') + ' result=' + (best ? JSON.stringify(best) : 'null'));
     if (best && best.severlessURL) {
       var base = String(best.severlessURL).replace(/\/+$/, '');
       return base + path;
@@ -48,28 +64,142 @@ function channelToServerType(channel) {
  *   groups: { [serverBaseUrl]: { serverUrl, accountIds } } ΓÇö active servers only
  *   fallbackIds: accounts with no/inactive server ΓåÆ resolveEngineUrl fleet
  */
-function resolveServerGroupsForAccounts(accountIds) {
+/**
+ * Eligibility check for a scoped (cookie-stamped) server against the requested
+ * workload. Mirrors the category/type/platform filters in getBestServerlessEndpoint.
+ * Returns { eligible, reason }.
+ */
+function isScopedServerEligible(linkInfo, requestingCategory, requestingPlatform, requestingServerType) {
+  if (!linkInfo) return { eligible: true, reason: "no link info (unmatched)" };
+  var reqCats = String(requestingCategory || "CAMPAIGN").trim();
+  var reqTypes = String(requestingServerType || "").trim();
+  var reqPlats = String(requestingPlatform || "").trim();
+
+  if (reqCats) {
+    var serverCats = splitRoutingValues(linkInfo.category || "");
+    var requestCats = splitRoutingValues(reqCats);
+    var catMatch = requestCats.some(function(rc) { return serverCats.indexOf(rc) !== -1; });
+    if (!catMatch) {
+      return { eligible: false, reason: "category mismatch (server=" + (linkInfo.category || "") + " requested=" + reqCats + ")" };
+    }
+  }
+  if (reqTypes) {
+    var serverTypes = splitRoutingValues(linkInfo.type || "");
+    var requestTypes = splitRoutingValues(reqTypes);
+    var typeMatch = requestTypes.some(function(rt) { return serverTypes.indexOf(rt) !== -1; });
+    if (!typeMatch) {
+      return { eligible: false, reason: "type mismatch (server=" + (linkInfo.type || "") + " requested=" + reqTypes + ")" };
+    }
+  }
+  if (reqPlats) {
+    var serverPlats = splitRoutingValues(linkInfo.platform || "");
+    var requestPlats = splitRoutingValues(reqPlats);
+    var platMatch = requestPlats.some(function(rp) { return serverPlats.indexOf(rp) !== -1; });
+    if (!platMatch) {
+      return { eligible: false, reason: "platform mismatch (server=" + (linkInfo.platform || "") + " requested=" + reqPlats + ")" };
+    }
+  }
+  return { eligible: true, reason: "eligible" };
+}
+
+/**
+ * Derive an effective routing platform for a single account (cookie/hub), used
+ * when no explicit platform is supplied to resolveServerGroupsForAccounts.
+ */
+function deriveAccountRoutingPlatform(id) {
+  try {
+    // Try submissionId first, then browserId (campaign accounts may be stored as either).
+    var lookups = [
+      { col: "submissionId", val: id },
+      { col: "browserId", val: id }
+    ];
+    for (var li = 0; li < lookups.length; li++) {
+      var res = getRowsByColumn("hub", lookups[li].col, lookups[li].val);
+      if (res && res.success && res.count > 0) {
+        var h = res.headers || [];
+        var bIdx = h.indexOf("browserId");
+        var browserId = bIdx !== -1 ? String(res.data[0][bIdx] || "").trim() : String(id || "").trim();
+        if (browserId && typeof getPlatformForBrowserId === "function") {
+          var cp = String(getPlatformForBrowserId(browserId) || "").trim();
+          if (cp) return cp;
+        }
+        // Also check cookie sheet directly for platform
+        try {
+          var cookieRes = getRowsByColumn(CONFIG.SHEET_NAME.COOKIE, "browserId", browserId);
+          if (cookieRes && cookieRes.success && cookieRes.count > 0) {
+            var ch = cookieRes.headers || [];
+            var plIdx = ch.indexOf("platform");
+            if (plIdx !== -1 && cookieRes.data[0][plIdx]) {
+              var cp2 = String(cookieRes.data[0][plIdx]).trim();
+              if (cp2) return cp2;
+            }
+          }
+        } catch (ce) {}
+        var pIdx = h.indexOf("platform");
+        if (pIdx !== -1 && res.data[0][pIdx]) return String(res.data[0][pIdx]).trim();
+        var tIdx = h.indexOf("type");
+        if (tIdx !== -1 && res.data[0][tIdx]) return String(res.data[0][tIdx]).trim();
+      }
+    }
+  } catch (e) {}
+  // If id itself looks like a browserId, check cookie sheet directly.
+  try {
+    if (String(id || "").indexOf("browser-") === 0) {
+      var cookieRes2 = getRowsByColumn(CONFIG.SHEET_NAME.COOKIE, "browserId", id);
+      if (cookieRes2 && cookieRes2.success && cookieRes2.count > 0) {
+        var ch2 = cookieRes2.headers || [];
+        var plIdx2 = ch2.indexOf("platform");
+        if (plIdx2 !== -1 && cookieRes2.data[0][plIdx2]) {
+          var cp3 = String(cookieRes2.data[0][plIdx2]).trim();
+          if (cp3) return cp3;
+        }
+      }
+      if (typeof getPlatformForBrowserId === "function") {
+        var cp4 = String(getPlatformForBrowserId(id) || "").trim();
+        if (cp4) return cp4;
+      }
+    }
+  } catch (e2) {}
+  return "";
+}
+
+function resolveServerGroupsForAccounts(accountIds, options) {
+  options = options || {};
+  var requestingCategory = (options.requestingCategory !== undefined && options.requestingCategory !== null)
+    ? String(options.requestingCategory).trim() : "CAMPAIGN";
+  var requestingPlatform0 = String(options.requestingPlatform || "").trim();
+  var requestingServerType0 = String(options.requestingServerType || "").trim();
+
   const groups = {};
   const fallbackIds = [];
   if (!accountIds || accountIds.length === 0) return { groups: groups, fallbackIds: fallbackIds };
 
-  // Links sheet lookup for the status check (one read, cached by getCachedRows).
-  // Health is NOT a routing criterion — status only.
+  // Invalidate links cache first so we always read fresh status/eligibility data
+  // (prevents stale ACTIVE/FAILED state from routing to dead servers like ngrok).
+  // Links sheet lookup for the status check (bypass cache entirely to avoid stale server state).
+  // Health is NOT a routing criterion — status only. Also capture category/type/platform
+  // so the scoped path can enforce eligibility (not just status).
   let linksByUrl = {};
   try {
-    const linksResult = getCachedRows(CONFIG.SHEET_NAME.LINKS, LINKS_CACHE_TTL_SECONDS);
+    const linksResult = getAllRows(CONFIG.SHEET_NAME.LINKS);
     if (linksResult.success && linksResult.data) {
       const h = linksResult.headers;
       const urlIdx = h.indexOf('severlessURL');
       const statusIdx = h.indexOf('severlessStatus');
       const healthIdx = h.indexOf('severlessHealth');
+      const catIdx = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesscategory'; });
+      const typeIdx = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesstype'; });
+      const platIdx = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlessplatform'; });
       if (urlIdx !== -1) {
         linksResult.data.forEach(function (row) {
           const url = String(row[urlIdx] || '').trim().replace(/\/+$/, '');
           if (!url) return;
           const status = statusIdx !== -1 ? String(row[statusIdx] || '').trim().toUpperCase() : 'ACTIVE';
           const health = healthIdx !== -1 ? String(row[healthIdx] || '').trim().toUpperCase() : '';
-          linksByUrl[url] = { active: (status === 'ACTIVE'), status: status, health: health };
+          const category = catIdx !== -1 ? String(row[catIdx] || '').trim() : '';
+          const type = typeIdx !== -1 ? String(row[typeIdx] || '').trim() : '';
+          const platform = platIdx !== -1 ? String(row[platIdx] || '').trim() : '';
+          linksByUrl[url] = { active: (status === 'ACTIVE'), status: status, health: health, category: category, type: type, platform: platform };
         });
       }
     }
@@ -105,14 +235,34 @@ function resolveServerGroupsForAccounts(accountIds) {
       Logger.log("resolveServerGroupsForAccounts: lookup failed for " + id + " (non-fatal): " + rowErr.message);
     }
 
+    Logger.log("resolveServerGroupsForAccounts: account=" + id + " browserId=" + browserId + " cookieServer=" + (serverUrl || "(none)") + " linksByUrlKeys=" + Object.keys(linksByUrl).join(","));
+    if (serverUrl) {
+      Logger.log("resolveServerGroupsForAccounts: linkInfo for " + serverUrl + " = " + JSON.stringify(linksByUrl[serverUrl] || null));
+    }
+
     if (!serverUrl) {
       fallbackIds.push(id);
       return;
     }
 
+    // Effective platform for this account (explicit override, else derived from cookie/hub).
+    var acctPlatform = requestingPlatform0 || deriveAccountRoutingPlatform(id);
+    var acctType = requestingServerType0;
+
     var linkInfo = linksByUrl[serverUrl] || null;
     if (linkInfo) {
       if (linkInfo.active) {
+        // Eligibility gate: an ACTIVE server must also serve the requested
+        // workload (category/type/platform). Prevents routing a CAMPAIGN task to
+        // a LINK-only or wrong-platform server (e.g. serverless2) just because
+        // its cookie stamp + ACTIVE status looked trustworthy.
+        var elig = isScopedServerEligible(linkInfo, requestingCategory, acctPlatform, acctType);
+        if (!elig.eligible) {
+          Logger.log("resolveServerGroupsForAccounts: " + id + " -> " + serverUrl + " ACTIVE in links but INELIGIBLE (" + elig.reason + "), clearing stamp and using fallback");
+          clearStaleCookieServer(browserId, serverUrl, "active-but-ineligible");
+          fallbackIds.push(id);
+          return;
+        }
         // Status ACTIVE in links, but verify reachability on-demand (handles stale/dead URLs still marked ACTIVE).
         if (!unmatchedPingCache.hasOwnProperty(serverUrl)) {
           var lp = pingEngineServer(serverUrl);
@@ -139,22 +289,12 @@ function resolveServerGroupsForAccounts(accountIds) {
       return;
     }
 
-    // Unmatched/stale URL (not in links sheet): verify reachability before trusting it.
-    // Prevents dispatching to dead ngrok/tunnel URLs stamped on old sessions.
-    if (!unmatchedPingCache.hasOwnProperty(serverUrl)) {
-      var ping = pingEngineServer(serverUrl);
-      var ok = !ping.definiteDown;
-      unmatchedPingCache[serverUrl] = { ok: ok, reason: ping.reason || (ok ? "reachable" : "unreachable") };
-      Logger.log("resolveServerGroupsForAccounts: probed unmatched server " + serverUrl + " -> " + (ok ? "ok" : ("down: " + unmatchedPingCache[serverUrl].reason)));
-    }
-    if (unmatchedPingCache[serverUrl].ok) {
-      if (!groups[serverUrl]) groups[serverUrl] = { serverUrl: serverUrl, accountIds: [] };
-      groups[serverUrl].accountIds.push(id);
-    } else {
-      Logger.log("resolveServerGroupsForAccounts: " + id + " -> stale server " + serverUrl + " (" + unmatchedPingCache[serverUrl].reason + "), clearing stamp and using fallback");
-      clearStaleCookieServer(browserId, serverUrl, "unmatched-unreachable");
-      fallbackIds.push(id);
-    }
+    // Unmatched/stale URL (not in links sheet): NEVER trust it, even if ping returns 200.
+    // A cookie-stamped server not present in the links sheet is by definition stale/unverified.
+    // Clear the stamp and route to fallback (which uses eligibility-filtered links sheet).
+    Logger.log("resolveServerGroupsForAccounts: " + id + " -> server " + serverUrl + " NOT in links sheet (unmatched/stale), clearing stamp and using fallback");
+    clearStaleCookieServer(browserId, serverUrl, "unmatched-not-in-links");
+    fallbackIds.push(id);
   });
 
   Logger.log("resolveServerGroupsForAccounts: " + accountIds.length + " account(s) ΓåÆ " +
@@ -259,8 +399,11 @@ function markLinkServerUnhealthy(baseUrl, reason) {
   var candidates = [base, base + "/"];
   for (var i = 0; i < candidates.length; i++) {
     try {
-      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.LINKS, "severlessURL", candidates[i], { severlessHealth: "DOWN" });
-      Logger.log("[markLinkServerUnhealthy] marked health DOWN " + candidates[i] + " reason=" + (reason || ""));
+      // Mark BOTH health (informational) AND status (routing criterion) as failed.
+      // Only call this when the server is definitively unreachable (both cloudflare
+      // tunnel AND localhost are dead), not for transient tunnel issues.
+      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.LINKS, "severlessURL", candidates[i], { severlessHealth: "DOWN", severlessStatus: "FAILED" });
+      Logger.log("[markLinkServerUnhealthy] marked status=FAILED health=DOWN " + candidates[i] + " reason=" + (reason || ""));
     } catch (e) {
       // non-fatal; row may not exist for this exact string form
     }
@@ -316,7 +459,12 @@ function fireEngineTrigger(url, payload, label) {
  */
 function dispatchCampaignToServers(path, basePayload, accountIds, resolveFallback) {
   const result = { attempted: 0, failed: 0, reasons: [], targets: [] };
-  const grouping = resolveServerGroupsForAccounts(accountIds || []);
+  const opts = resolveFallback || {};
+  const grouping = resolveServerGroupsForAccounts(accountIds || [], {
+    requestingCategory: "CAMPAIGN",
+    requestingPlatform: opts.platform || "",
+    requestingServerType: opts.serverType || ""
+  });
 
   Object.keys(grouping.groups).forEach(function (serverUrl) {
     const group = grouping.groups[serverUrl];
@@ -1234,11 +1382,28 @@ function runCampaignPipeline(params) {
     try {
       var dispatch = dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
         platform: pipelinePlatform,
-        serverType: ''
+        serverType: channelToServerType(resumeSettings.channel)
       });
       if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
         var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
-        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason);
+        // Dump links sheet for diagnostics
+        var linksDump = "";
+        try {
+          var lr = getAllRows(CONFIG.SHEET_NAME.LINKS);
+          if (lr && lr.success && lr.data) {
+            var h = lr.headers;
+            var urlI = h.indexOf('severlessURL');
+            var statusI = h.indexOf('severlessStatus');
+            var catI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesscategory'; });
+            var typeI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesstype'; });
+            var platI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlessplatform'; });
+            lr.data.forEach(function(row) {
+              linksDump += " [" + (urlI!==-1?row[urlI]:'') + "|" + (statusI!==-1?row[statusI]:'') + "|" + (catI!==-1?row[catI]:'') + "|" + (typeI!==-1?row[typeI]:'') + "|" + (platI!==-1?row[platI]:'') + "]";
+            });
+          }
+        } catch (e) {}
+        var diag = " [diag: platform=" + pipelinePlatform + " accounts=" + pipelineAccountIds.length + " attempted=" + (dispatch ? dispatch.attempted : 0) + " failed=" + (dispatch ? dispatch.failed : 0) + " targets=" + (dispatch && dispatch.targets ? dispatch.targets.join(",") : "") + " links=" + linksDump + "]";
+        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason + diag);
       }
     } catch (dispatchError) {
       // Revert so a failed dispatch never leaves a zombie 'running' row with
@@ -1536,7 +1701,24 @@ function resumeCampaign(params) {
       });
       if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
         var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
-        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason);
+        // Dump links sheet for diagnostics
+        var linksDump = "";
+        try {
+          var lr = getAllRows(CONFIG.SHEET_NAME.LINKS);
+          if (lr && lr.success && lr.data) {
+            var h = lr.headers;
+            var urlI = h.indexOf('severlessURL');
+            var statusI = h.indexOf('severlessStatus');
+            var catI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesscategory'; });
+            var typeI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlesstype'; });
+            var platI = h.findIndex(function(x){ return String(x).trim().toLowerCase() === 'severlessplatform'; });
+            lr.data.forEach(function(row) {
+              linksDump += " [" + (urlI!==-1?row[urlI]:'') + "|" + (statusI!==-1?row[statusI]:'') + "|" + (catI!==-1?row[catI]:'') + "|" + (typeI!==-1?row[typeI]:'') + "|" + (platI!==-1?row[platI]:'') + "]";
+            });
+          }
+        } catch (e) {}
+        var diag = " [diag: platform=" + pipelinePlatform + " accounts=" + pipelineAccountIds.length + " attempted=" + (dispatch ? dispatch.attempted : 0) + " failed=" + (dispatch ? dispatch.failed : 0) + " targets=" + (dispatch && dispatch.targets ? dispatch.targets.join(",") : "") + " links=" + linksDump + "]";
+        throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason + diag);
       }
       return { success: true, message: "Campaign resumed and continuing from checkpoint.", status: "running", dispatch: { attempted: dispatch.attempted, failed: dispatch.failed } };
     } catch (dispatchError) {
