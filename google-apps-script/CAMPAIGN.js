@@ -389,21 +389,28 @@ function pingEngineServer(baseUrl, campaignId) {
  * @returns {{ ok: boolean, error?: string }}
  */
 /**
- * Best-effort: mark a links-sheet server as unhealthy (informational) when definitively unreachable.
- * Health is NOT used for routing/selection; status remains the criterion.
+ * Best-effort: mark a links-sheet server as unhealthy when unreachable from GAS.
+ * IMPORTANT: GAS runs remotely and cannot tell whether localhost is alive behind a
+ * dead/rotated tunnel, so remote-unreachable MUST NOT force severlessStatus=FAILED
+ * (routing criterion). Instead we mark health DOWN and let local startup/healer
+ * reconcile status (ACTIVE when healthy, FAILED only when localhost is truly down).
  */
 function markLinkServerUnhealthy(baseUrl, reason) {
   if (!baseUrl) return;
   var base = String(baseUrl).trim().replace(/\/+$/, "");
   if (!base || !base.startsWith("http")) return;
   var candidates = [base, base + "/"];
+  var why = String(reason || "unreachable");
   for (var i = 0; i < candidates.length; i++) {
     try {
-      // Mark BOTH health (informational) AND status (routing criterion) as failed.
-      // Only call this when the server is definitively unreachable (both cloudflare
-      // tunnel AND localhost are dead), not for transient tunnel issues.
-      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.LINKS, "severlessURL", candidates[i], { severlessHealth: "DOWN", severlessStatus: "FAILED" });
-      Logger.log("[markLinkServerUnhealthy] marked status=FAILED health=DOWN " + candidates[i] + " reason=" + (reason || ""));
+      // Do NOT set severlessStatus=FAILED here: tunnel-only outages must remain
+      // recoverable by local tunnel-healer/sync-tunnels without manual intervention.
+      setMultipleCellDataByColumnSearch(CONFIG.SHEET_NAME.LINKS, "severlessURL", candidates[i], {
+        severlessHealth: "DOWN",
+        severlessHealthReason: why,
+        severlessHealthCheckedAt: new Date().toISOString()
+      });
+      Logger.log("[markLinkServerUnhealthy] marked health=DOWN (status unchanged) " + candidates[i] + " reason=" + why);
     } catch (e) {
       // non-fatal; row may not exist for this exact string form
     }
@@ -1035,8 +1042,24 @@ function createNewCampaign(params) {
     });
 
     if (dispatch.attempted === 0 || dispatch.failed === dispatch.attempted) {
+      // Avoid reverting progressed campaigns to draft; preserve resumability.
+      var fallbackStatus = "draft";
+      try {
+        var existing = getRowsByColumn("campaigns", "campaignId", campaignId);
+        if (existing && existing.success && existing.count > 0) {
+          var eh = existing.headers || [];
+          var esi = eh.indexOf("settings");
+          var es = esi !== -1 ? existing.data[0][esi] : null;
+          var eso = typeof es === "string" ? JSON.parse(es) : (es || {});
+          var ea = (eso && eso.analytics) || {};
+          var sentish2 = Number(ea.sent || 0) + Number(ea.delivered || 0) + Number(ea.failed || 0) + Number(ea.skipped || 0) + Number(ea.skippedAlreadySent || 0);
+          var progressed = Number(eso && eso.lastProcessedRow || 0) > 0 || sentish2 > 0 || !!(eso && eso.mailMerged);
+          var cur = String(existing.data[0][eh.indexOf("status")] || "").trim().toLowerCase();
+          if (progressed || ["paused", "resting", "limit reached", "processing", "staged", "running"].indexOf(cur) !== -1) fallbackStatus = "paused";
+        }
+      } catch (e) {}
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
-        status: "draft",
+        status: fallbackStatus,
         updatedOn: new Date().toISOString()
       });
       var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
@@ -1380,9 +1403,20 @@ function runCampaignPipeline(params) {
     // Fan-out: one orchestrator trigger per owning server (scoped accountIds),
     // fallback fleet only for accounts with no/inactive server.
     try {
+      var pipelineChannel = '';
+      try {
+        var _pr = getRowsByColumn("campaigns", "campaignId", campaignId);
+        if (_pr && _pr.success && _pr.count > 0) {
+          var _ph = _pr.headers || [];
+          var _si = _ph.indexOf("settings");
+          var _ps = _si !== -1 ? _pr.data[0][_si] : null;
+          var _pso = typeof _ps === "string" ? JSON.parse(_ps) : (_ps || {});
+          pipelineChannel = String((_pso && _pso.channel) || '').trim();
+        }
+      } catch (e) {}
       var dispatch = dispatchCampaignToServers("/api/pipeline-orchestrator", { campaignId }, pipelineAccountIds, {
         platform: pipelinePlatform,
-        serverType: channelToServerType(resumeSettings.channel)
+        serverType: channelToServerType(pipelineChannel)
       });
       if (!dispatch || dispatch.attempted === 0 || dispatch.failed >= dispatch.attempted) {
         var reason = (dispatch && dispatch.reasons && dispatch.reasons.length) ? (" " + dispatch.reasons.join(" | ")) : "";
@@ -1406,9 +1440,33 @@ function runCampaignPipeline(params) {
         throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason + diag);
       }
     } catch (dispatchError) {
-      // Revert so a failed dispatch never leaves a zombie 'running' row with
-      // nothing dispatched. Keep the pre-start status when we know it.
-      var revertStatus = pipelineStatusBefore && pipelineStatusBefore.toLowerCase() !== "running" ? pipelineStatusBefore : "draft";
+      // Revert so a failed dispatch never leaves a zombie 'running' row with nothing dispatched.
+      // Never revert progressed/resumable campaigns to 'draft' (breaks UI/resume): prefer 'paused'.
+      var revertStatus = "draft";
+      try {
+        var before = String(pipelineStatusBefore || "").trim().toLowerCase();
+        var hasProgress = false;
+        var rr = getRowsByColumn("campaigns", "campaignId", campaignId);
+        if (rr && rr.success && rr.count > 0) {
+          var hh = rr.headers || [];
+          var si = hh.indexOf("settings");
+          var rawS = si !== -1 ? rr.data[0][si] : null;
+          var sObj = typeof rawS === "string" ? JSON.parse(rawS) : (rawS || {});
+          var analytics = (sObj && sObj.analytics) || {};
+          var sentish = Number(analytics.sent || 0) + Number(analytics.delivered || 0) + Number(analytics.failed || 0) + Number(analytics.skipped || 0) + Number(analytics.skippedAlreadySent || 0);
+          hasProgress = Number(sObj && sObj.lastProcessedRow || 0) > 0 || sentish > 0 || !!(sObj && sObj.mailMerged) || (sObj && sObj._scopedCompleted && Object.keys(sObj._scopedCompleted || {}).length > 0);
+        }
+        if (["paused", "resting", "limit reached", "processing", "staged", "running"].indexOf(before) !== -1 || hasProgress) {
+          revertStatus = "paused";
+        } else if (before === "completed" || before === "failed" || before === "error") {
+          revertStatus = pipelineStatusBefore;
+        } else if (before) {
+          revertStatus = pipelineStatusBefore;
+        }
+      } catch (e) {
+        Logger.log("[runCampaignPipeline] revert status detection failed (defaulting safely): " + e.message);
+        revertStatus = (String(pipelineStatusBefore || "").trim().toLowerCase() === "running") ? "paused" : (pipelineStatusBefore || "draft");
+      }
       try {
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
           status: revertStatus,

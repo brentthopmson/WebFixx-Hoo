@@ -168,6 +168,8 @@ function doPost(e) {
         return handleDeactivateStaleLink(params);
       case "getDriveFileText":
         return handleGetDriveFileText(params);
+      case "updateDriveFileText":
+        return handleUpdateDriveFileText(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -291,6 +293,31 @@ function handleGetDriveFileText(params) {
     return createJsonResponse({ success: true, content: content });
   } catch (error) {
     Logger.log("[handleGetDriveFileText] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Overwrite a Drive file's text content by fileId.
+ * Used as App Script fallback when OAuth2 tokens are dead/unavailable.
+ * @param {Object} params - { fileId, content, mimeType? }
+ * @returns {Object} { success: true } or { success: false, error }
+ */
+function handleUpdateDriveFileText(params) {
+  try {
+    var fileId = String((params && params.fileId) || "").trim();
+    if (!fileId) return createJsonResponse({ success: false, error: "fileId required" });
+    var content = params && params.content != null ? String(params.content) : "";
+    var mimeType = String((params && params.mimeType) || "text/plain");
+    var file = DriveApp.getFileById(fileId);
+    file.setContent(content);
+    // Best-effort: Drive text files may not expose setMimeType for all types,
+    // but content replacement is the critical part for CSV checkpoint persistence.
+    try { if (file.getMimeType && file.getMimeType() !== mimeType) { /* no-op */ } } catch (e) {}
+    Logger.log("[handleUpdateDriveFileText] wrote " + content.length + " chars to " + fileId);
+    return createJsonResponse({ success: true, fileId: fileId, bytes: content.length });
+  } catch (error) {
+    Logger.log("[handleUpdateDriveFileText] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }
