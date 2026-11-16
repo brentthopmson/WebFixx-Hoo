@@ -1,8 +1,6 @@
-function oneMinuteRunner() {
-  checkTransactionStatus();
-  //alertUsers();
-}
-
+// A duplicate oneMinuteRunner() used to shadow the watchdog-enabled definition
+// below, so reconcileFalseRunningCampaigns() never ran on the 1-minute trigger.
+// It has been removed; the single definition further down is authoritative.
 function fiveMinutesRunner() {
   updateExpiredProjectLinks();
   updateExpiredRedirectLinks();

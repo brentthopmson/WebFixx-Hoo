@@ -1042,8 +1042,10 @@ function createNewCampaign(params) {
     });
 
     if (dispatch.attempted === 0 || dispatch.failed === dispatch.attempted) {
-      // Avoid reverting progressed campaigns to draft; preserve resumability.
-      var fallbackStatus = "draft";
+      // A failed dispatch must never write 'draft' - that hides the campaign from
+      // the UI (which stops polling on draft) even if an engine trigger is alive.
+      // 'paused' is resumable and keeps the correct state visible.
+      var fallbackStatus = "paused";
       try {
         var existing = getRowsByColumn("campaigns", "campaignId", campaignId);
         if (existing && existing.success && existing.count > 0) {
@@ -1441,8 +1443,8 @@ function runCampaignPipeline(params) {
       }
     } catch (dispatchError) {
       // Revert so a failed dispatch never leaves a zombie 'running' row with nothing dispatched.
-      // Never revert progressed/resumable campaigns to 'draft' (breaks UI/resume): prefer 'paused'.
-      var revertStatus = "draft";
+      // Always 'paused' (resumable, UI-visible). 'draft' is only for a never-started campaign.
+      var revertStatus = "paused";
       try {
         var before = String(pipelineStatusBefore || "").trim().toLowerCase();
         var hasProgress = false;
@@ -1460,12 +1462,15 @@ function runCampaignPipeline(params) {
           revertStatus = "paused";
         } else if (before === "completed" || before === "failed" || before === "error") {
           revertStatus = pipelineStatusBefore;
-        } else if (before) {
+        } else if (before && before !== "draft") {
           revertStatus = pipelineStatusBefore;
         }
+        // before === 'draft' keeps the safe default 'paused' - a dispatch was
+        // attempted, so the campaign is no longer a pristine draft.
       } catch (e) {
         Logger.log("[runCampaignPipeline] revert status detection failed (defaulting safely): " + e.message);
-        revertStatus = (String(pipelineStatusBefore || "").trim().toLowerCase() === "running") ? "paused" : (pipelineStatusBefore || "draft");
+        var beforeRaw = String(pipelineStatusBefore || "").trim().toLowerCase();
+        revertStatus = ["completed", "failed", "error"].indexOf(beforeRaw) !== -1 ? pipelineStatusBefore : "paused";
       }
       try {
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
@@ -1822,7 +1827,14 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
     var serverType = channelToServerType(settings.channel);
 
     var updatedOnTime = campaign.updatedOn ? new Date(campaign.updatedOn).getTime() : 0;
-    var ageMs = (updatedOnTime > 0 && !isNaN(updatedOnTime)) ? (Date.now() - updatedOnTime) : 999999;
+    // Long-running browser stages (validate/enrich/personalize) heartbeat the row
+    // every 45s. A 25s grace used to pause them mid-run when the orchestrator's
+    // own short-lived registration ended after dispatching a stage.
+    var engineGraceMs = 5 * 60 * 1000;
+    var lease = settings.runLease || {};
+    var leaseHeartbeat = Number(lease.heartbeatAt || lease.startedAt);
+    var lastEngineSignal = (!isNaN(leaseHeartbeat) && leaseHeartbeat > 0) ? leaseHeartbeat : updatedOnTime;
+    var ageMs = (lastEngineSignal > 0 && !isNaN(lastEngineSignal)) ? (Date.now() - lastEngineSignal) : 999999;
 
     var grouping = resolveServerGroupsForAccounts(accountIds);
     var targetServers = Object.keys(grouping.groups || {});
@@ -1846,8 +1858,9 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
           if (ping.isCampaignActive) {
             anyServerRunning = true;
             break;
-          } else if (ageMs < 25000) {
-            // Newly started or transitioning between stages on a live engine
+          } else if (ageMs < engineGraceMs) {
+            // Newly started, transitioning between stages, or a long browser
+            // stage that is still heartbeating on a live engine.
             anyServerRunning = true;
             break;
           } else {
