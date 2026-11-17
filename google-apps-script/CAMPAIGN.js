@@ -4,6 +4,39 @@
  */
 
 /**
+ * Append an entry to the campaign's status audit trail. Every writer of the
+ * campaigns sheet `status` column (GAS and engine) must call this so a mid-run
+ * pause can be attributed. Kept to 20 entries and best-effort only.
+ */
+function auditCampaignStatus(campaignId, status, writer, settingsObj) {
+  try {
+    var obj = settingsObj;
+    if (!obj) {
+      var res = getRowsByColumn("campaigns", "campaignId", campaignId);
+      if (!res || !res.success || !res.count) return;
+      var h = res.headers || [];
+      var si = h.indexOf("settings");
+      var raw = si !== -1 ? res.data[0][si] : null;
+      obj = typeof raw === "string" ? JSON.parse(raw || "{}") : (raw || {});
+    }
+    var trail = (obj && Array.isArray(obj.statusAudit)) ? obj.statusAudit.slice(-19) : [];
+    trail.push({
+      at: new Date().toISOString(),
+      status: String(status || ""),
+      writer: String(writer || "gas"),
+    });
+    obj.statusAudit = trail;
+    if (!settingsObj) {
+      setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, { settings: JSON.stringify(obj) });
+    }
+    return obj;
+  } catch (e) {
+    Logger.log("[auditCampaignStatus] failed for " + campaignId + ": " + e.message);
+    return settingsObj || {};
+  }
+}
+
+/**
  * Resolve the best available engine URL for a given API path.
  * Uses getBestServerlessEndpoint to pick from the "links" sheet,
  * falling back to CONFIG.EXTERNAL_API if nothing is available.
@@ -1060,6 +1093,7 @@ function createNewCampaign(params) {
           if (progressed || ["paused", "resting", "limit reached", "processing", "staged", "running"].indexOf(cur) !== -1) fallbackStatus = "paused";
         }
       } catch (e) {}
+      auditCampaignStatus(campaignId, fallbackStatus, "gas-execute-dispatch-failed");
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
         status: fallbackStatus,
         updatedOn: new Date().toISOString()
@@ -1192,6 +1226,7 @@ function executeCampaign(params) {
 
     if (dispatch.attempted > 0 && dispatch.failed < dispatch.attempted) {
       // Update status to 'running'
+      auditCampaignStatus(campaignId, "running", "gas-executeCampaign");
       const updates = {
         status: "running",
         updatedOn: new Date().toISOString()
@@ -1397,6 +1432,7 @@ function runCampaignPipeline(params) {
     // Mark 'running' BEFORE dispatch so two rapid clicks (or two tabs) cannot
     // both pass the pre-check, and so the orchestrator's exclude-self count
     // matches reality. Also makes a dispatch failure revertable below.
+    auditCampaignStatus(campaignId, "running", "gas-runCampaignPipeline");
     setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
       status: "running",
       updatedOn: new Date().toISOString(),
@@ -1473,6 +1509,7 @@ function runCampaignPipeline(params) {
         revertStatus = ["completed", "failed", "error"].indexOf(beforeRaw) !== -1 ? pipelineStatusBefore : "paused";
       }
       try {
+        auditCampaignStatus(campaignId, revertStatus, "gas-pipeline-dispatch-revert");
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
           status: revertStatus,
           updatedOn: new Date().toISOString(),
@@ -1662,9 +1699,9 @@ function pauseCampaign(params) {
               settingsChanged = true;
             }
           });
-          if (settingsChanged) {
-            updates.settings = JSON.stringify(settingsObj);
-          }
+          // Always persist the status audit entry, even if no stage status changed.
+          auditCampaignStatus(campaignId, "paused", "gas-pauseCampaign", settingsObj);
+          updates.settings = JSON.stringify(settingsObj);
         }
       } catch (e) {}
     }
@@ -1741,6 +1778,7 @@ function resumeCampaign(params) {
     delete resumeSettings.restSetAt;
     delete resumeSettings.runLease;
 
+    auditCampaignStatus(campaignId, "running", "gas-resumeCampaign", resumeSettings);
     const updates = {
       status: "running",
       settings: JSON.stringify(resumeSettings),
@@ -1790,6 +1828,7 @@ function resumeCampaign(params) {
         delete resumeSettings.restReason;
         delete resumeSettings.restSetAt;
         resumeSettings.lastEngineError = dispatchError && dispatchError.message ? dispatchError.message : "Engine server is offline or unreachable. Resume manually when engine is back.";
+        auditCampaignStatus(campaignId, "paused", "gas-resume-dispatch-failed", resumeSettings);
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
           status: "paused",
           settings: JSON.stringify(resumeSettings),
@@ -1896,6 +1935,7 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
       delete settings.restReason;
       delete settings.restSetAt;
 
+      auditCampaignStatus(campaignId, "paused", "gas-watchdog-dead-engine", settings);
       var nowIso = new Date().toISOString();
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
         status: "paused",

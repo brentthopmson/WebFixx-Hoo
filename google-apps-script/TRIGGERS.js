@@ -66,6 +66,7 @@ function checkAndResumeRestingCampaigns() {
           if (now - createdOnTime >= maxDurationMs) {
             Logger.log("[campaign-recovery] Campaign " + campaignId + " reached duration limit (" + durationDays + "d) - completing");
             delete settings.restUntil; delete settings.restReason; delete settings.runLease;
+            auditCampaignStatus(campaignId, "completed", "gas-duration-complete", settings);
             setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
               settings: JSON.stringify(settings),
               status: "completed",
@@ -102,6 +103,7 @@ function checkAndResumeRestingCampaigns() {
           delete settings.restReason;
           delete settings.restSetAt;
           delete settings.runLease;
+          auditCampaignStatus(campaignId, "paused", "gas-rest-auto-resume", settings);
           setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
             settings: JSON.stringify(settings),
             status: "paused"
@@ -111,6 +113,7 @@ function checkAndResumeRestingCampaigns() {
             // Set a retry rest so trigger picks it up again
             settings.restUntil = Date.now() + 5 * 60 * 1000;
             settings.restReason = "resume_retry";
+            auditCampaignStatus(campaignId, "resting", "gas-resume-retry", settings);
             setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
               settings: JSON.stringify(settings),
               status: "resting",
@@ -201,6 +204,7 @@ function reconcileFalseRunningCampaigns() {
           delete settings.restUntil;
           delete settings.restReason;
           delete settings.restSetAt;
+          auditCampaignStatus(campaignId, "paused", "gas-watchdog-stale", settings);
           setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
             status: "paused",
             settings: JSON.stringify(settings),
