@@ -1823,11 +1823,22 @@ function resumeCampaign(params) {
       }
       return { success: true, message: "Campaign resumed and continuing from checkpoint.", status: "running", dispatch: { attempted: dispatch.attempted, failed: dispatch.failed } };
     } catch (dispatchError) {
+      // Keep the real reason for the stop (e.g. a quota rest) intact. A failed
+      // resume is a transport problem, not the cause the campaign was resting,
+      // so do NOT wipe restUntil/restReason/restSetAt — the UI needs them.
       try {
-        delete resumeSettings.restUntil;
-        delete resumeSettings.restReason;
-        delete resumeSettings.restSetAt;
-        resumeSettings.lastEngineError = dispatchError && dispatchError.message ? dispatchError.message : "Engine server is offline or unreachable. Resume manually when engine is back.";
+        var rawDispatchMsg = dispatchError && dispatchError.message ? String(dispatchError.message) : "";
+        var shortDispatchMsg = "";
+        if (/no eligible engine server/i.test(rawDispatchMsg)) {
+          shortDispatchMsg = "Resume failed: no eligible engine server for this campaign category/platform. Start the engine and retry.";
+        } else if (rawDispatchMsg) {
+          shortDispatchMsg = "Resume failed: " + rawDispatchMsg.split("\n")[0].slice(0, 180);
+        } else {
+          shortDispatchMsg = "Resume failed: engine server is offline or unreachable. Start the engine and retry.";
+        }
+        resumeSettings.lastEngineError = shortDispatchMsg;
+        // Preserve the pre-existing stop reason; only set a fallback when none exists.
+        if (!resumeSettings.restReason) resumeSettings.restReason = "resume_dispatch_failed";
         auditCampaignStatus(campaignId, "paused", "gas-resume-dispatch-failed", resumeSettings);
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
           status: "paused",
@@ -1837,7 +1848,7 @@ function resumeCampaign(params) {
       } catch (revertErr) {}
       return {
         success: false,
-        error: (dispatchError && dispatchError.message) ? dispatchError.message : "Engine server is offline or unreachable. Resume manually when engine is back.",
+        error: resumeSettings.lastEngineError || "Resume failed: engine server is offline or unreachable.",
         status: "paused"
       };
     }
