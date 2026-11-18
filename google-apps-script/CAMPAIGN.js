@@ -1543,7 +1543,9 @@ function runCampaignPipeline(params) {
           var _cs = _csi !== -1 ? _chk.data[0][_csi] : null;
           var _cso = typeof _cs === "string" ? JSON.parse(_cs) : (_cs || {});
           var _cids = Array.isArray(_cso.accounts) ? _cso.accounts : [];
-          if (isEngineRunningCampaign(campaignId, _cso, _cids)) {
+          var _ui = _ch.indexOf("updatedOn");
+          var _updatedOn = _ui !== -1 ? _chk.data[0][_ui] : null;
+          if (isEngineRunningCampaign(campaignId, _cso, _cids, _updatedOn)) {
             Logger.log("[runCampaignPipeline] dispatch reported failure but a live engine is actively running " + campaignId + " — skipping revert to paused.");
             return { success: true, message: "Pipeline already running on a live engine", campaignId: campaignId, skippedRevert: true };
           }
@@ -1901,7 +1903,9 @@ function resumeCampaign(params) {
       // avoids transient Apps Script fetch drops). No revert / no error.
       try {
         var _rIds = Array.isArray(resumeSettings.accounts) ? resumeSettings.accounts : [];
-        if (isEngineRunningCampaign(campaignId, resumeSettings, _rIds)) {
+        var _rUi = headers.indexOf("updatedOn");
+        var _rUpdated = _rUi !== -1 ? row[_rUi] : null;
+        if (isEngineRunningCampaign(campaignId, resumeSettings, _rIds, _rUpdated)) {
           Logger.log("[resumeCampaign] dispatch reported failure but a live engine is actively running " + campaignId + " — treating resume as successful.");
           return { success: true, message: "Campaign already running on a live engine", status: "running", skippedRevert: true };
         }
@@ -1958,8 +1962,14 @@ function resumeCampaign(params) {
  * failure does not prematurely declare the engine down. Returns true only on a
  * definitive positive signal; false otherwise so the fail-safe still applies.
  */
-function isEngineRunningCampaign(campaignId, settings, accountIds) {
+function isEngineRunningCampaign(campaignId, settings, accountIds, updatedOn, recentMs) {
   try {
+    // A row freshly flipped to 'running' plus a REACHABLE engine is a live run
+    // even if the in-process stage lease is not registered yet (stage handoff
+    // window). Use a short grace window to avoid reverting a healthy campaign.
+    var graceMs = recentMs || 3 * 60 * 1000;
+    var markedAt = updatedOn ? new Date(updatedOn).getTime() : 0;
+    var isRecent = !isNaN(markedAt) && markedAt > 0 && (Date.now() - markedAt) <= graceMs;
     var ids = Array.isArray(accountIds) ? accountIds : [];
     var platform = resolveCampaignRoutingPlatform(settings || {}, ids) || "";
     var serverType = channelToServerType((settings && settings.channel) || "");
@@ -1976,7 +1986,13 @@ function isEngineRunningCampaign(campaignId, settings, accountIds) {
     }
     for (var i = 0; i < servers.length; i++) {
       var ping = pingEngineServerWithRetry(servers[i], campaignId, 3);
-      if (ping && ping.reachable && ping.isCampaignActive === true) return true;
+      if (!ping || !ping.reachable) continue;
+      if (ping.isCampaignActive === true) return true;
+      // Reachable engine + freshly started row = live run in the handoff window.
+      if (isRecent) {
+        Logger.log("[isEngineRunningCampaign] reachable engine + recent running mark for " + campaignId + " — treating as live.");
+        return true;
+      }
     }
   } catch (e) {
     Logger.log("[isEngineRunningCampaign] check failed: " + e.message);
