@@ -6,6 +6,7 @@ import time
 import base64
 import threading
 from dotenv import load_dotenv
+from . import appdata_cache as _cache
 from .file_validators import validate_upload_campaign_csv
 from .campaign_validators import validate_campaign_metadata
 
@@ -66,55 +67,49 @@ def _prune_token_cache():
         _TOKEN_CACHE.pop(k, None)
 
 # ---------------------------------------------------------------------------
-# Per-user, table-keyed AppData cache (in-memory).
-# Getters serve from here; writes hit Apps Script on demand then re-cache.
+# Per-user, table-keyed AppData cache — SHARED across all gunicorn workers via
+# SQLite (see appdata_cache.py). A single Apps Script fetch now serves every
+# worker instead of each worker downloading the large bundle independently.
+# The public helper names below are kept so the rest of this module is unchanged.
 # ---------------------------------------------------------------------------
 _APP_CACHE_TTL = int(os.getenv('APP_CACHE_TTL', '120'))
 _APP_CACHE_MAX = int(os.getenv('APP_CACHE_MAX', '2000'))
-_APP_DATA_CACHE = {}
 
-# In-flight appData reads per user. When two identical getAppDataLite/updateAppData
-# calls arrive together, the second waits on the first's event instead of issuing a
-# second (huge) Apps Script round-trip. Cleared by _release_inflight().
-_INFLIGHT_READS = {}
-
-
-def _release_inflight(user_id, event, owned):
-    if not owned or event is None:
-        return
-    event.set()
-    if _INFLIGHT_READS.get(user_id) is event:
-        _INFLIGHT_READS.pop(user_id, None)
-
-def _prune_app_cache():
-    """Remove expired entries and cap the cache size."""
-    now = time.time()
-    expired = [k for k, (expires_at, _) in _APP_DATA_CACHE.items() if now >= expires_at]
-    for k in expired:
-        _APP_DATA_CACHE.pop(k, None)
-    if len(_APP_DATA_CACHE) > _APP_CACHE_MAX:
-        for k in list(_APP_DATA_CACHE)[: len(_APP_DATA_CACHE) - _APP_CACHE_MAX]:
-            _APP_DATA_CACHE.pop(k, None)
 
 def _app_key(user_id, table):
     return f"app:{user_id}:{table}"
 
+def _prune_app_cache():
+    try:
+        _cache.prune(_APP_CACHE_MAX)
+    except Exception:
+        pass
+
 def _get_app_table(user_id, table):
-    _prune_app_cache()
-    entry = _APP_DATA_CACHE.get(_app_key(user_id, table))
-    if entry and entry[0] >= time.time():
-        return entry[1]
-    return None
+    if not user_id:
+        return None
+    return _cache.get(_app_key(user_id, table))
 
 def _set_app_table(user_id, table, value):
-    _APP_DATA_CACHE[_app_key(user_id, table)] = (time.time() + _APP_CACHE_TTL, value)
+    if not user_id:
+        return
+    _cache.set(_app_key(user_id, table), value, _APP_CACHE_TTL)
 
 def _invalidate_user(user_id):
     if not user_id:
         return
-    _prune_app_cache()
-    for k in [k for k in list(_APP_DATA_CACHE) if k.startswith(f"app:{user_id}:")]:
-        _APP_DATA_CACHE.pop(k, None)
+    _cache.delete_prefix(f"app:{user_id}:")
+
+# Cross-worker in-flight lease. Each request gets an owner token; only one
+# caller fetches while the lease is held; the rest wait and re-check the cache.
+def _acquire_inflight(user_id):
+    return _cache.acquire_inflight(user_id)
+
+def _inflight_active(user_id):
+    return _cache.inflight_active(user_id)
+
+def _release_inflight(user_id, owner):
+    _cache.release_inflight(user_id, owner)
 
 def _extract_user_id(token):
     """Decode userId from the app token without hitting Apps Script.
@@ -155,15 +150,10 @@ def _build_cached_appdata(user_id):
     _prune_app_cache()
     prefix = f"app:{user_id}:"
     app_data = {}
-    for k in list(_APP_DATA_CACHE):
-        if not k.startswith(prefix):
-            continue
-        table = k[len(prefix):]
+    for table, value in _cache.list_valid(prefix):
         if table in (_APP_USER_KEY, _APP_META_KEY):
             continue
-        entry = _APP_DATA_CACHE[k]
-        if entry[0] >= time.time():
-            app_data[table] = entry[1]
+        app_data[table] = value
     user = _get_app_table(user_id, _APP_USER_KEY)
     meta = _get_app_table(user_id, _APP_META_KEY) or {}
     return {
@@ -458,25 +448,34 @@ class ExternalApisHandler:
                             return result
                         _TOKEN_CACHE.pop(token, None)
 
-            # Layer 2 (read path): serve appData from the per-user cache unless
-            # forced (manual "Get Update") or the cache is cold. Concurrent reads
-            # for the same user are coalesced into a single Apps Script call.
+            # Layer 2 (read path): serve appData from the SHARED per-user cache
+            # unless forced (manual "Get Update") or the cache is cold. Concurrent
+            # reads across ALL workers coalesce into a single Apps Script fetch
+            # via a DB-backed in-flight lease (no per-worker duplication).
             coalesced_read = is_read and bool(req_uid)
-            inflight_event = None
-            owns_inflight = False
+            inflight_owner = None
             if coalesced_read:
                 if not force and _cached_appdata_ready(req_uid):
                     self.logger.info(f"[Backend] AppData CACHE HIT for user {req_uid} (fn={function_name})")
                     return _build_cached_appdata(req_uid)
-                existing = _INFLIGHT_READS.get(req_uid)
-                if existing is not None:
-                    self.logger.info(f"[Backend] Coalescing read for user {req_uid} (fn={function_name})")
-                    existing.wait(timeout=self.timeout + 30)
+                # If another worker is already fetching this user's bundle, wait
+                # for it to finish and serve from the shared cache.
+                waited = 0
+                while _inflight_active(req_uid) and waited < self.timeout + 30:
+                    time.sleep(0.5)
+                    waited += 0.5
+                    if _cached_appdata_ready(req_uid):
+                        self.logger.info(f"[Backend] Coalesced cross-worker read for user {req_uid} (fn={function_name}) after {waited:.1f}s")
+                        return _build_cached_appdata(req_uid)
+                if _cached_appdata_ready(req_uid) and not force:
+                    return _build_cached_appdata(req_uid)
+                inflight_owner = _acquire_inflight(req_uid)
+                if inflight_owner is None:
+                    # Another worker won the lease between our wait and acquire;
+                    # use the cache if it is now ready, else proceed to fetch.
                     if _cached_appdata_ready(req_uid):
                         return _build_cached_appdata(req_uid)
-                inflight_event = threading.Event()
-                _INFLIGHT_READS[req_uid] = inflight_event
-                owns_inflight = True
+                    self.logger.info(f"[Backend] Lease held by another worker for {req_uid}; fetching in parallel")
 
             payload = {
                 'action': 'backendFunction',
@@ -517,7 +516,7 @@ class ExternalApisHandler:
                         self.logger.warning(f"[Backend] AppScript returned failure for {function_name}: {result.get('error')}")
                         # A failed write may have partially mutated data — drop stale cache.
                         _invalidate_user(result_user_id)
-                        _release_inflight(req_uid, inflight_event, owns_inflight)
+                        _release_inflight(req_uid, inflight_owner)
                         return result
                     self.logger.info(f"[Backend] AppScript response: success={result.get('success', 'unknown')} | error={result.get('error', 'none')}")
                     if function_name == 'updateSetting':
@@ -545,7 +544,7 @@ class ExternalApisHandler:
                             updated_user = dict(cached_user)
                             updated_user['usage'] = result['userUsage']
                             _set_app_table(result_user_id, _APP_USER_KEY, updated_user)
-                    _release_inflight(req_uid, inflight_event, owns_inflight)
+                    _release_inflight(req_uid, inflight_owner)
                     return result
                 except requests.exceptions.ConnectionError as e:
                     last_error = e
@@ -555,7 +554,7 @@ class ExternalApisHandler:
                     last_error = e
                     self.logger.error(f"[Backend] Attempt {attempt+1} failed for {function_name}: {str(e)}")
                     break
-            _release_inflight(req_uid, inflight_event, owns_inflight)
+            _release_inflight(req_uid, inflight_owner)
             return {'error': str(last_error), 'success': False}
         except Exception as e:
             self.logger.error(f"[Backend] Exception in handle_backend_multi_function: {str(e)}")
