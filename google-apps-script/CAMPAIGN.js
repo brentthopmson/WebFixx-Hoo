@@ -414,6 +414,31 @@ function pingEngineServer(baseUrl, campaignId) {
 }
 
 /**
+ * Retry an engine ping a few times before concluding the server is down.
+ * Apps Script UrlFetchApp can transiently fail (cold tunnel, brief 5xx, DNS)
+ * even when the engine is perfectly alive. Return the first success, preferring
+ * a definitive reachable signal; only report "down" after all attempts fail.
+ * @param {string} baseUrl
+ * @param {string} [campaignId]
+ * @param {number} [attempts]
+ * @returns {Object} same shape as pingEngineServer
+ */
+function pingEngineServerWithRetry(baseUrl, campaignId, attempts) {
+  var tries = attempts || 3;
+  var last = null;
+  for (var i = 0; i < tries; i++) {
+    var p = pingEngineServer(baseUrl, campaignId);
+    last = p;
+    if (p && p.reachable) return p; // definitive live signal
+    // Wait before retrying so a cold tunnel/warm-up has time to respond.
+    if (i < tries - 1) {
+      try { Utilities.sleep(1500 * (i + 1)); } catch (e) {}
+    }
+  }
+  return last || { reachable: false, definiteDown: true, reason: "no ping result" };
+}
+
+/**
  * Fire-and-forget dispatch to a specific engine instance (GAS 6-min limit ΓÇö
  * campaign runs are long; we only need the engine to pick the job up).
  * @param {string} url - Full engine URL
@@ -1279,7 +1304,8 @@ function getCampaignRowUserId(row, headers) {
 /**
  * Per-user concurrent campaign pre-check (mirrors engine
  * checkUserConcurrentCampaigns in utils/campaignConcurrency.js). Reads
- * SETTINGS campaignConcurrentLimit (fallback 1 ΓÇö safety valve) and counts
+ * the user's PLAN (Limits sheet campaignConcurrentLimit; fallback 1 ΓÇö safety
+ * valve), never the SETTINGS sheet, and counts
  * this user's campaigns-sheet rows whose status is active
  * (running/processing/staged/resting), excluding excludeCampaignId.
  * 'resting' counts because a cooldown campaign wakes automatically via
@@ -1289,10 +1315,36 @@ function getCampaignRowUserId(row, headers) {
  * @param {string} [excludeCampaignId]
  * @returns {{allowed: boolean, current: number, limit: number}}
  */
+/**
+ * Read a numeric column from the user's PLAN row in the Limits sheet.
+ * Returns 0 when unavailable (caller applies its own fallback).
+ */
+function getPlanColumnForUser(userId, columnName) {
+  try {
+    var uid = String(userId || "").trim();
+    if (!uid) return 0;
+    var userResult = getRowsByColumn("user", "userId", uid);
+    if (!userResult.success || !userResult.count) return 0;
+    var planIdx = userResult.headers.indexOf("plan");
+    var userPlan = planIdx !== -1 ? String(userResult.data[0][planIdx] || "").trim() : "";
+    if (!userPlan) return 0;
+    var limitsResult = getRowsByColumn("limits", "plan", userPlan);
+    if (!limitsResult.success || !limitsResult.count) return 0;
+    var colIdx = limitsResult.headers.indexOf(columnName);
+    if (colIdx === -1) return 0;
+    var val = parseInt(limitsResult.data[0][colIdx], 10);
+    return isFinite(val) && val > 0 ? val : 0;
+  } catch (e) {
+    Logger.log("[getPlanColumnForUser] " + columnName + " failed: " + e.message);
+    return 0;
+  }
+}
+
 function checkConcurrentCampaignsForUser(userId, excludeCampaignId) {
   try {
-    var limit = parseInt(getSettingValue("campaignConcurrentLimit"), 10);
-    if (!isFinite(limit) || limit < 1) limit = 1;
+    // Per-user concurrent cap comes from the USER'S PLAN, never the SETTINGS sheet.
+    var planLimit = getPlanColumnForUser(userId, "campaignConcurrentLimit");
+    var limit = planLimit > 0 ? planLimit : 1;
 
     var uid = String(userId || "").trim();
     if (!uid) return { allowed: true, current: 0, limit: limit };
@@ -1478,6 +1530,27 @@ function runCampaignPipeline(params) {
         throw new Error("Engine server is offline or unreachable. Start the engine and try again." + reason + diag);
       }
     } catch (dispatchError) {
+      // If a live engine is ALREADY actively running this campaign (e.g. the
+      // visible local engine received the trigger), a dispatch "failure" here is
+      // a false negative from Apps Script UrlFetch. Do NOT revert to paused in
+      // that case — leave it running so the live engine continues. Retry-ping
+      // inside isEngineRunningCampaign avoids transient fetch drops.
+      try {
+        var _chk = getRowsByColumn("campaigns", "campaignId", campaignId);
+        if (_chk && _chk.success && _chk.count > 0) {
+          var _ch = _chk.headers || [];
+          var _csi = _ch.indexOf("settings");
+          var _cs = _csi !== -1 ? _chk.data[0][_csi] : null;
+          var _cso = typeof _cs === "string" ? JSON.parse(_cs) : (_cs || {});
+          var _cids = Array.isArray(_cso.accounts) ? _cso.accounts : [];
+          if (isEngineRunningCampaign(campaignId, _cso, _cids)) {
+            Logger.log("[runCampaignPipeline] dispatch reported failure but a live engine is actively running " + campaignId + " — skipping revert to paused.");
+            return { success: true, message: "Pipeline already running on a live engine", campaignId: campaignId, skippedRevert: true };
+          }
+        }
+      } catch (liveCheckErr) {
+        Logger.log("[runCampaignPipeline] live-engine check failed (continuing to fail-safe revert): " + liveCheckErr.message);
+      }
       // Revert so a failed dispatch never leaves a zombie 'running' row with nothing dispatched.
       // Always 'paused' (resumable, UI-visible). 'draft' is only for a never-started campaign.
       var revertStatus = "paused";
@@ -1823,6 +1896,18 @@ function resumeCampaign(params) {
       }
       return { success: true, message: "Campaign resumed and continuing from checkpoint.", status: "running", dispatch: { attempted: dispatch.attempted, failed: dispatch.failed } };
     } catch (dispatchError) {
+      // If a live engine is already actively running this campaign, treat the
+      // dispatch failure as a false negative and leave it running (retry-ping
+      // avoids transient Apps Script fetch drops). No revert / no error.
+      try {
+        var _rIds = Array.isArray(resumeSettings.accounts) ? resumeSettings.accounts : [];
+        if (isEngineRunningCampaign(campaignId, resumeSettings, _rIds)) {
+          Logger.log("[resumeCampaign] dispatch reported failure but a live engine is actively running " + campaignId + " — treating resume as successful.");
+          return { success: true, message: "Campaign already running on a live engine", status: "running", skippedRevert: true };
+        }
+      } catch (liveCheckErr2) {
+        Logger.log("[resumeCampaign] live-engine check failed (continuing to fail-safe): " + liveCheckErr2.message);
+      }
       // Keep the real reason for the stop (e.g. a quota rest) intact. A failed
       // resume is a transport problem, not the cause the campaign was resting,
       // so do NOT wipe restUntil/restReason/restSetAt — the UI needs them.
@@ -1865,6 +1950,40 @@ function resumeCampaign(params) {
  * auto-pause the campaign in the sheet so the frontend never stays stuck on
  * 'running' forever.
  */
+/**
+ * Is ANY owning/resolved engine currently ALIVE and actively running this
+ * campaign? Used to avoid reverting a row to 'paused' when the GAS dispatch
+ * "failed" but a live engine (e.g. the visible local one) actually received the
+ * trigger and is executing. Uses retry pings so a transient Apps Script fetch
+ * failure does not prematurely declare the engine down. Returns true only on a
+ * definitive positive signal; false otherwise so the fail-safe still applies.
+ */
+function isEngineRunningCampaign(campaignId, settings, accountIds) {
+  try {
+    var ids = Array.isArray(accountIds) ? accountIds : [];
+    var platform = resolveCampaignRoutingPlatform(settings || {}, ids) || "";
+    var serverType = channelToServerType((settings && settings.channel) || "");
+    var grouping = resolveServerGroupsForAccounts(ids);
+    var servers = Object.keys((grouping && grouping.groups) || {});
+    if ((grouping && grouping.fallbackIds && grouping.fallbackIds.length > 0) || servers.length === 0) {
+      var fb = String(resolveEngineUrl("", platform, serverType) || "").replace(/\/+$/, "");
+      if (fb && servers.indexOf(fb) === -1) servers.push(fb);
+    }
+    // Also ping the campaign's own wireAccount-derived server via any available.
+    if (servers.length === 0) {
+      var any = String(getAnyAvailableServer ? getAnyAvailableServer() : "").replace(/\/+$/, "");
+      if (any) servers.push(any);
+    }
+    for (var i = 0; i < servers.length; i++) {
+      var ping = pingEngineServerWithRetry(servers[i], campaignId, 3);
+      if (ping && ping.reachable && ping.isCampaignActive === true) return true;
+    }
+  } catch (e) {
+    Logger.log("[isEngineRunningCampaign] check failed: " + e.message);
+  }
+  return false;
+}
+
 function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
   try {
     if (!campaign) return false;

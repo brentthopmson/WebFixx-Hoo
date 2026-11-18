@@ -170,6 +170,8 @@ function doPost(e) {
         return handleGetDriveFileText(params);
       case "updateDriveFileText":
         return handleUpdateDriveFileText(params);
+      case "createDriveCsv":
+        return handleCreateDriveCsv(params);
       default:
         return createJsonResponse({ error: "Invalid action" });
     }
@@ -318,6 +320,27 @@ function handleUpdateDriveFileText(params) {
     return createJsonResponse({ success: true, fileId: fileId, bytes: content.length });
   } catch (error) {
     Logger.log("[handleUpdateDriveFileText] Error: " + error.message);
+    return createJsonResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * Create a new standalone CSV file in the campaigns folder.
+ * @param {Object} params - { fileName, content, mimeType? }
+ * @returns {Object} { success, fileId, url }
+ */
+function handleCreateDriveCsv(params) {
+  try {
+    var name = String((params && params.fileName) || "campaign.csv").trim() || "campaign.csv";
+    var content = params && params.content != null ? String(params.content) : "";
+    var blob = Utilities.newBlob(content, "text/csv", name);
+    var folder = DriveApp.getFolderById(CONFIG.FOLDER_ID.CAMPAIGNS);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    Logger.log("[handleCreateDriveCsv] created " + name + " id=" + file.getId());
+    return createJsonResponse({ success: true, fileId: file.getId(), url: file.getUrl() });
+  } catch (error) {
+    Logger.log("[handleCreateDriveCsv] Error: " + error.message);
     return createJsonResponse({ success: false, error: error.message });
   }
 }
