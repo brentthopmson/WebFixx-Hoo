@@ -934,7 +934,7 @@ function getUserData(userId, lite) {
 
   const settingsStart = Date.now();
   var allSettings = getCachedRows("settings");
-  var userSettingKeys = ["webFixxTelegramGroup", "webFixxTelegramUsername", "autoWallet"];
+  var userSettingKeys = ["webFixxTelegramGroup", "webFixxTelegramUsername", "autoWallet", "campaignMaxDurationDays", "maxAccountsPerCampaign", "campaignConcurrentLimit"];
   var filteredSettings = {
     success: allSettings.success,
     headers: allSettings.headers,
