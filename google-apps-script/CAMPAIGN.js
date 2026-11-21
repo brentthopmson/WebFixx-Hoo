@@ -1928,9 +1928,15 @@ function resumeCampaign(params) {
         resumeSettings.lastEngineError = shortDispatchMsg;
         // Preserve the pre-existing stop reason; only set a fallback when none exists.
         if (!resumeSettings.restReason) resumeSettings.restReason = "resume_dispatch_failed";
-        auditCampaignStatus(campaignId, "paused", "gas-resume-dispatch-failed", resumeSettings);
+        // A failed resume dispatch (no eligible engine) is a transient engine
+        // condition — rest with a cooldown so the trigger retries automatically.
+        var resumeRestMin = parseInt(getSettingValue("campaignRestErrorMinutes"), 10);
+        if (!(resumeRestMin > 0)) resumeRestMin = 15;
+        resumeSettings.restUntil = Date.now() + resumeRestMin * 60 * 1000;
+        resumeSettings.restSetAt = new Date().toISOString();
+        auditCampaignStatus(campaignId, "resting", "gas-resume-dispatch-failed", resumeSettings);
         setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
-          status: "paused",
+          status: "resting",
           settings: JSON.stringify(resumeSettings),
           updatedOn: new Date().toISOString()
         });
@@ -1938,7 +1944,7 @@ function resumeCampaign(params) {
       return {
         success: false,
         error: resumeSettings.lastEngineError || "Resume failed: engine server is offline or unreachable.",
-        status: "paused"
+        status: "resting"
       };
     }
   } catch (error) {
@@ -2077,19 +2083,23 @@ function checkAndPauseDeadEngineCampaign(campaignId, campaign) {
       });
       settings.lastEngineError = reasonMsg;
       delete settings.runLease;
-      delete settings.restUntil;
-      delete settings.restReason;
-      delete settings.restSetAt;
+      // A dead engine is an ENGINE condition, not a user pause. Put the campaign
+      // into a timed rest so the TRIGGERS.js rest auto-resume can wake it.
+      var restMin = parseInt(getSettingValue("campaignRestErrorMinutes"), 10);
+      if (!(restMin > 0)) restMin = 15;
+      settings.restUntil = Date.now() + restMin * 60 * 1000;
+      settings.restReason = "engine_dead";
+      settings.restSetAt = new Date().toISOString();
 
-      auditCampaignStatus(campaignId, "paused", "gas-watchdog-dead-engine", settings);
+      auditCampaignStatus(campaignId, "resting", "gas-watchdog-dead-engine", settings);
       var nowIso = new Date().toISOString();
       setMultipleCellDataByColumnSearch("campaigns", "campaignId", campaignId, {
-        status: "paused",
+        status: "resting",
         settings: JSON.stringify(settings),
         updatedOn: nowIso
       });
 
-      campaign.status = "paused";
+      campaign.status = "resting";
       campaign.settings = settings;
       campaign.updatedOn = nowIso;
       campaign.engineStopped = true;

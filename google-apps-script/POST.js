@@ -3439,6 +3439,11 @@ function updateSetting(params) {
       Logger.log(`[updateSetting] verification read failed: ${verifyError.message}`);
     }
 
+    // Settings are read through getCachedRows("settings") (60s CacheService
+    // TTL). Invalidate it after the write so admin edits take effect immediately
+    // instead of serving stale values to getAppDataLite / getSettingValue.
+    try { invalidateCachedRows("settings"); } catch (invErr) { Logger.log(`[updateSetting] cache invalidation failed: ${invErr.message}`); }
+
     Logger.log(`[updateSetting] Updated '${key}' at row ${result.rowNumber}: ${JSON.stringify(headerAndValueMap)} | sheet now: ${JSON.stringify(verified)}`);
     return { success: true, message: `Setting '${key}' updated successfully`, rowNumber: result.rowNumber, verified: verified };
   } catch (error) {
